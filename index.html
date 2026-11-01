@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Progress Capture — guided front + side</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; color: #f2f2f2; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  header { padding: 14px 20px 6px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 20px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .sub { color: #9a9a9a; font-size: 13px; }
+  main { display: flex; gap: 18px; padding: 10px 20px 20px; flex-wrap: wrap; }
+  .stage { position: relative; flex: 0 1 520px; }
+  .frame { position: relative; width: 100%; aspect-ratio: 3 / 4; background: #111; border-radius: 14px; overflow: hidden; }
+  video, canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  canvas.overlay { pointer-events: none; }
+  .guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .statusbar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; background: linear-gradient(transparent, rgba(0,0,0,.82)); font-size: 17px; font-weight: 600; text-align: center; }
+  .countdown { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-size: 150px; font-weight: 700; color: #fff; text-shadow: 0 4px 30px rgba(0,0,0,.7); pointer-events: none; }
+  .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .35s; }
+  .panel { flex: 1 1 260px; min-width: 250px; }
+  .panel h2 { font-size: 15px; margin: 6px 0 8px; color: #cfcfcf; font-weight: 600; }
+  ul.checks { list-style: none; margin: 0 0 16px; padding: 0; }
+  ul.checks li { padding: 7px 10px; margin-bottom: 6px; border: 1px solid #2c2c2c; border-radius: 9px; font-size: 14px; color: #8d8d8d; display: flex; gap: 8px; align-items: center; }
+  ul.checks li .dot { width: 10px; height: 10px; border-radius: 50%; background: #444; flex: none; }
+  ul.checks li.ok { color: #e8f5e9; border-color: #2e7d32; }
+  ul.checks li.ok .dot { background: #43a047; }
+  ul.checks li.bad { color: #ffe9e9; border-color: #7d2e2e; }
+  ul.checks li.bad .dot { background: #c62828; }
+  button { background: #f2f2f2; color: #111; border: 0; border-radius: 10px; padding: 11px 16px; font-size: 15px; font-weight: 600; cursor: pointer; margin: 0 8px 8px 0; }
+  button.secondary { background: #262626; color: #f2f2f2; border: 1px solid #3a3a3a; }
+  button:disabled { opacity: .4; cursor: default; }
+  button[hidden] { display: none; }
+  .shots { display: flex; gap: 12px; margin-top: 6px; }
+  .shot { width: 118px; }
+  .shot img { width: 118px; height: 157px; object-fit: cover; border-radius: 10px; border: 1px solid #333; background: #111; display: block; }
+  .shot .cap { font-size: 12px; color: #9a9a9a; margin: 5px 0; text-align: center; }
+  .shot button { width: 100%; padding: 7px 0; font-size: 13px; margin: 0 0 6px; }
+  .note { color: #8d8d8d; font-size: 13px; line-height: 1.45; margin-top: 14px; }
+  .err { color: #ff9c9c; }
+  body.rear video, body.rear canvas.overlay { transform: none; }
+  .analysis { border: 1px solid #2c2c2c; border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; font-size: 14px; }
+  .analysis .ahead { font-weight: 600; color: #cfcfcf; margin-bottom: 6px; }
+  .analysis .await { color: #8d8d8d; margin: 0; }
+  .analysis table { border-collapse: collapse; width: 100%; }
+  .analysis td { padding: 3px 0; vertical-align: top; }
+  .analysis td.v { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: 10px; }
+  .analysis .delta { color: #9a9a9a; font-size: 12px; display: block; text-align: right; }
+  .analysis .meta { color: #8d8d8d; font-size: 12px; margin-top: 6px; }
+  .analysis .aerr { color: #ff9c9c; margin: 0; }
+  select { background: #262626; color: #f2f2f2; border: 1px solid #3a3a3a; border-radius: 8px; padding: 8px; font-size: 14px; margin: 0 8px 8px 0; }
+  input[type="file"] { font-size: 14px; margin: 0 0 8px; max-width: 100%; }
+  @media (max-width: 760px) {
+    header { padding: 12px 14px 4px; }
+    header h1 { font-size: 18px; }
+    main { flex-direction: column; padding: 8px 12px max(16px, env(safe-area-inset-bottom)); gap: 12px; }
+    .stage { flex: none; width: 100%; }
+    .panel { flex: none; width: 100%; min-width: 0; }
+    button { min-height: 48px; font-size: 16px; }
+    ul.checks li { font-size: 15px; padding: 9px 11px; }
+    .statusbar { font-size: 16px; }
+    select, input[type="file"] { font-size: 16px; min-height: 44px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Progress Capture</h1>
+  <span class="sub">Guided front + side shots with landmark ratios computed on this device, the moment each shot is captured. Photos never leave this device — they save as downloads.</span>
+</header>
+<main>
+  <div class="stage">
+    <div class="frame">
+      <video id="cam" playsinline muted></video>
+      <canvas class="overlay" id="overlay"></canvas>
+      <svg class="guide" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <g fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6" stroke-dasharray="5 4">
+          <circle cx="150" cy="52" r="21"/>
+          <path d="M150 73 L150 84 M112 96 Q150 84 188 96 L196 210 Q197 258 188 292 L164 292 L158 210 L142 210 L136 292 L112 292 Q103 258 104 210 Z"/>
+          <line x1="104" y1="150" x2="196" y2="150" stroke="rgba(255,255,255,.25)"/>
+          <line x1="104" y1="238" x2="196" y2="238" stroke="rgba(255,255,255,.25)"/>
+        </g>
+      </svg>
+      <div class="countdown" id="countdown">3</div>
+      <div class="flash" id="flash"></div>
+      <div class="statusbar" id="status">Loading pose model…</div>
+    </div>
+  </div>
+  <div class="panel">
+    <button id="startBtn">Start camera</button>
+    <button id="captureBtn" class="secondary" disabled>Capture now</button>
+    <button id="flipBtn" class="secondary" disabled>Switch camera</button>
+    <button id="retryBtn" class="secondary" hidden>Retry model load</button>
+    <h2 id="stepTitle">Step 1 of 2 — Front</h2>
+    <ul class="checks" id="checks"></ul>
+    <h2>Captured</h2>
+    <div class="shots">
+      <div class="shot">
+        <img id="thumbFront" alt="Front capture">
+        <div class="cap">Front</div>
+        <button id="dlFront" class="secondary" disabled>Download</button>
+        <button id="retakeFront" class="secondary" disabled>Retake</button>
+      </div>
+      <div class="shot">
+        <img id="thumbSide" alt="Side capture">
+        <div class="cap">Side</div>
+        <button id="dlSide" class="secondary" disabled>Download</button>
+        <button id="retakeSide" class="secondary" disabled>Retake</button>
+      </div>
+    </div>
+    <h2>Analysis — computed on this device</h2>
+    <div class="analysis" id="analysisFront"><div class="ahead">Front</div><p class="await">No front shot analyzed yet.</p></div>
+    <div class="analysis" id="analysisSide"><div class="ahead">Side</div><p class="await">No side shot analyzed yet.</p></div>
+    <h2>Analyze a photo</h2>
+    <select id="filePose" aria-label="Photo pose">
+      <option value="auto">Pose: auto-detect</option>
+      <option value="front">Pose: front</option>
+      <option value="side">Pose: side</option>
+    </select>
+    <input type="file" id="photoInput" accept="image/*">
+    <div class="analysis" id="analysisFile"><div class="ahead">Photo</div><p class="await">Pick an existing JPG to run the same ratio analysis on it. No camera needed. On a phone this picker opens your photo library.</p></div>
+    <p class="note">How it works: line yourself up until every check turns green, hold still — the countdown starts on its own. Front first, then turn 90° for the side shot (either direction). The moment a shot is captured, the pose model runs on the still right here and the ratios appear under Analysis — deltas compare against your station baseline once it's been set from your first station session. Downloads still land as <i>progress-YYYY-MM-DD-front.jpg</i> / <i>-side.jpg</i> if you want the files.</p>
+    <p class="note">Protocol that keeps the ratios honest: same spot and distance, arms relaxed at your sides, similar shorts, camera at about waist height.</p>
+    <p class="note err" id="err"></p>
+  </div>
+</main>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const video = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
+const statusEl = $("status"), checksEl = $("checks"), errEl = $("err"), retryBtn = $("retryBtn");
+const countdownEl = $("countdown"), flashEl = $("flash");
+
+const LM = { NOSE: 0, L_SH: 11, R_SH: 12, L_HIP: 23, R_HIP: 24, L_KNEE: 25, R_KNEE: 26 };
+const HOLD_MS = 1500, COUNT_MS = 3000;
+const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const VISION_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+const LOAD_STAGE_NAMES = {
+  1: "library download",
+  2: "pose engine (FilesetResolver WASM)",
+  3: "model file download",
+  4: "tracker creation"
+};
+
+let landmarker = null, stream = null, raf = 0, lastVideoTime = -1;
+let facingMode = "user";   // phone fixed station runs on the front camera by default
+let step = "front";               // "front" -> "side" -> "done"
+let holdStart = null, countStart = null, lastTick = null;
+let audioCtx = null;
+const shots = { front: null, side: null };   // {blob, url}
+let FilesetResolver = null, PoseLandmarker = null;
+let visionFileset = null, modelAssetBuffer = null, modelBufferPromise = null;
+
+function beep(freq = 880, ms = 90) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(0.12, audioCtx.currentTime);
+    o.start(); o.stop(audioCtx.currentTime + ms / 1000);
+  } catch (_) { /* audio is a nicety */ }
+}
+
+function setStatus(t) { statusEl.textContent = t; }
+
+async function loadVision() {
+  const vision = await import(VISION_URL);
+  FilesetResolver = vision.FilesetResolver;
+  PoseLandmarker = vision.PoseLandmarker;
+  return vision;
+}
+
+async function ensureVisionFileset() {
+  if (!visionFileset) {
+    if (!FilesetResolver || !PoseLandmarker) await loadVision();
+    visionFileset = await FilesetResolver.forVisionTasks(WASM_URL);
+  }
+  return visionFileset;
+}
+
+async function fetchModelBuffer() {
+  if (modelAssetBuffer) return modelAssetBuffer;
+  if (!modelBufferPromise) {
+    modelBufferPromise = (async () => {
+      let lastError = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await fetch(MODEL_URL);
+          if (!response.ok) throw new Error(`HTTP ${response.status} while downloading the pose model`);
+          return await response.arrayBuffer();
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      throw lastError || new Error("Unknown pose model download error");
+    })();
+  }
+  try {
+    modelAssetBuffer = await modelBufferPromise;
+  } catch (_) {
+    modelAssetBuffer = null;
+  }
+  return modelAssetBuffer;
+}
+
+function modelBaseOptions(delegate) {
+  return modelAssetBuffer
+    ? { modelAssetBuffer, delegate }
+    : { modelAssetPath: MODEL_URL, delegate };
+}
+
+function setLoadStage(stage) {
+  setStatus(`Loading pose model — Step ${stage}/4: ${LOAD_STAGE_NAMES[stage]}`);
+}
+
+function renderChecks(list) {
+  checksEl.innerHTML = "";
+  for (const c of list) {
+    const li = document.createElement("li");
+    li.className = c.state;
+    li.innerHTML = `<span class="dot"></span><span></span>`;
+    li.lastChild.textContent = c.label;
+    checksEl.appendChild(li);
+  }
+}
+
+const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+const spanX = (a, b) => Math.abs(a.x - b.x);
+
+function evaluate(lm, pose) {
+  // Returns {checks:[{id,label,state}], hint} — coordinates are normalized 0..1.
+  const lsh = lm[LM.L_SH], rsh = lm[LM.R_SH], lhip = lm[LM.L_HIP], rhip = lm[LM.R_HIP];
+  const nose = lm[LM.NOSE], lk = lm[LM.L_KNEE], rk = lm[LM.R_KNEE];
+  const vis = p => (p.visibility ?? 1) > 0.5;
+  const mSh = mid(lsh, rsh), mHip = mid(lhip, rhip);
+  const torsoY = Math.abs(mHip.y - mSh.y);
+  const shW = spanX(lsh, rsh), hipW = spanX(lhip, rhip);
+  const checks = [];
+  const push = (id, ok, okLabel, badLabel) =>
+    checks.push({ id, state: ok ? "ok" : "bad", label: ok ? okLabel : badLabel });
+
+  const seen = vis(lsh) && vis(rsh) && vis(lhip) && vis(rhip) && vis(nose);
+  push("seen", seen, "Full torso detected", "Step into frame — shoulders, hips and head visible");
+  if (!seen) return { checks, hint: "Step into the frame" };
+
+  const centered = Math.abs(mSh.x - 0.5) < 0.07 && Math.abs(mHip.x - 0.5) < 0.09;
+  push("center", centered, "Centered", "Move to the center of the frame");
+
+  if (pose === "front") {
+    const facing = shW / Math.max(torsoY, 1e-6) > 0.55;
+    push("facing", facing, "Facing the camera", "Face the camera squarely");
+    const level = Math.abs(lsh.y - rsh.y) < 0.05 * torsoY + 0.008;
+    push("level", level, "Shoulders level", "Level your shoulders");
+    const dist = shW > 0.26 && shW < 0.52;
+    push("dist", dist, "Distance looks right", shW <= 0.26 ? "Step closer" : "Step back");
+    const framed = nose.y > 0.03 && mHip.y < 0.80 && (vis(lk) || vis(rk) || mHip.y < 0.74);
+    push("framed", framed, "Head to hips in frame", "Adjust so your head and hips both fit");
+    const ordered = ["facing", "center", "level", "dist", "framed"];
+    const bad = ordered.map(id => checks.find(c => c.id === id)).find(c => c && c.state !== "ok");
+    return { checks, hint: bad ? bad.label : "Hold still…" };
+  } else {
+    const profile = shW / Math.max(torsoY, 1e-6) < 0.32 && hipW / Math.max(torsoY, 1e-6) < 0.34;
+    push("facing", profile, "Side-on to the camera", "Turn 90° — stand side-on");
+    const dist = torsoY > 0.28 && torsoY < 0.46;
+    push("dist", dist, "Distance looks right", torsoY <= 0.28 ? "Step closer" : "Step back");
+    const framed = nose.y > 0.03 && mHip.y < 0.82;
+    push("framed", framed, "Head to hips in frame", "Adjust so your head and hips both fit");
+    const ordered = ["facing", "center", "dist", "framed"];
+    const bad = ordered.map(id => checks.find(c => c.id === id)).find(c => c && c.state !== "ok");
+    return { checks, hint: bad ? bad.label : "Hold still…" };
+  }
+}
+
+function drawLandmarks(lm) {
+  const w = overlay.width, h = overlay.height;
+  octx.clearRect(0, 0, w, h);
+  if (!lm) return;
+  octx.fillStyle = "rgba(255,235,59,.95)";
+  for (const i of [LM.NOSE, LM.L_SH, LM.R_SH, LM.L_HIP, LM.R_HIP]) {
+    const p = lm[i];
+    octx.beginPath(); octx.arc(p.x * w, p.y * h, Math.max(4, w * 0.006), 0, Math.PI * 2); octx.fill();
+  }
+  octx.strokeStyle = "rgba(255,255,255,.5)"; octx.lineWidth = Math.max(2, w * 0.003);
+  octx.beginPath();
+  octx.moveTo(lm[LM.L_SH].x * w, lm[LM.L_SH].y * h); octx.lineTo(lm[LM.R_SH].x * w, lm[LM.R_SH].y * h);
+  octx.moveTo(lm[LM.L_HIP].x * w, lm[LM.L_HIP].y * h); octx.lineTo(lm[LM.R_HIP].x * w, lm[LM.R_HIP].y * h);
+  octx.stroke();
+}
+
+function capture() {
+  const c = document.createElement("canvas");
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext("2d").drawImage(video, 0, 0);
+  c.toBlob(blob => {
+    if (shots[step]) URL.revokeObjectURL(shots[step].url);
+    shots[step] = { blob, url: URL.createObjectURL(blob) };
+    const cap = step;
+    const thumb = cap === "front" ? $("thumbFront") : $("thumbSide");
+    thumb.src = shots[cap].url;
+    (cap === "front" ? $("dlFront") : $("dlSide")).disabled = false;
+    (cap === "front" ? $("retakeFront") : $("retakeSide")).disabled = false;
+    flashEl.style.opacity = "1";
+    setTimeout(() => flashEl.style.opacity = "0", 60);
+    beep(1320, 140);
+    if (cap === "front") {
+      step = "side";
+      $("stepTitle").textContent = "Step 2 of 2 — Side";
+      setStatus("Front captured. Turn 90° — side-on, either direction.");
+    } else {
+      step = "done";
+      $("stepTitle").textContent = "Done — both shots captured";
+      setStatus("Both shots captured — ratios are under Analysis.");
+      $("captureBtn").disabled = true;
+    }
+    holdStart = countStart = null;
+    countdownEl.style.display = "none";
+    analyzeAndRender(c, cap);
+  }, "image/jpeg", 0.92);
+}
+
+function filename(pose) {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  return `progress-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pose}.jpg`;
+}
+
+function download(pose) {
+  if (!shots[pose]) return;
+  const a = document.createElement("a");
+  a.href = shots[pose].url; a.download = filename(pose); a.click();
+}
+
+function loop() {
+  raf = requestAnimationFrame(loop);
+  if (!landmarker || video.readyState < 2) return;
+  if (overlay.width !== video.videoWidth) { overlay.width = video.videoWidth; overlay.height = video.videoHeight; }
+  if (video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+  let result;
+  try { result = landmarker.detectForVideo(video, performance.now()); }
+  catch (_) { return; }
+  const lm = result && result.landmarks && result.landmarks[0];
+  drawLandmarks(lm);
+  if (step === "done") return;
+  if (!lm) {
+    renderChecks([{ state: "bad", label: "No pose detected — step into the frame" }]);
+    setStatus("No pose detected");
+    holdStart = countStart = null; countdownEl.style.display = "none";
+    return;
+  }
+  const { checks, hint } = evaluate(lm, step);
+  renderChecks(checks);
+  const allOk = checks.every(c => c.state === "ok");
+  const now = performance.now();
+  if (!allOk) {
+    holdStart = countStart = null;
+    countdownEl.style.display = "none";
+    setStatus(hint);
+    return;
+  }
+  if (!holdStart) { holdStart = now; setStatus("Hold still…"); return; }
+  if (now - holdStart < HOLD_MS) { setStatus("Hold still…"); return; }
+  if (!countStart) { countStart = now; lastTick = 3; }
+  const remain = COUNT_MS - (now - countStart);
+  if (remain <= 0) { capture(); return; }
+  const tick = Math.ceil(remain / 1000);
+  countdownEl.style.display = "flex";
+  countdownEl.textContent = tick;
+  if (tick !== lastTick) { lastTick = tick; beep(880, 70); }
+  setStatus("Capturing…");
+}
+
+// ==== On-capture analysis (architecture v3: analyze where the capture happens) ====
+// Ratio math ported from ~/workspace/photo-landmarks/analyze.py (feature 4a).
+// The Python pipeline ran MediaPipe Pose (legacy solutions) on 1290x1720 photos;
+// this port runs the tasks-vision PoseLandmarker on the captured still instead.
+// Same definitions: joint widths are Euclidean landmark distances; the waist is
+// the torso silhouette run at the fixed 0.60 line of the shoulder->hip span,
+// from the segmentation-mask run containing the body center, with small gaps
+// bridged. Front ratios use joint widths (chest-line and hip-line silhouette
+// widths are QC-excluded in fronts — arms/hands merge into those runs); side
+// ratios use silhouette depths (landmark widths are projection artifacts there).
+
+// Station baseline: Jorge's call (Nov 1) — the phone-on-mirror station starts a NEW
+// ratio series; the old Sep/Oct photo numbers are never mixed in. Filled in from the
+// Day-1 station baseline session (3 back-to-back pairs, averages). While a pose is
+// null, its analysis shows ratios only, no delta reference.
+const STATION_BASELINE = { front: null, side: null };
+
+// ==== ANALYSIS CORE (pure) ====
+const REF_W = 1290; // baseline photo width (1290x1720); px constants below scale from it
+
+function runsInRow(row) {
+  const runs = [];
+  let x = 0;
+  const n = row.length;
+  while (x < n) {
+    if (row[x]) {
+      const x0 = x;
+      while (x < n && row[x]) x++;
+      runs.push([x0, x - 1]);
+    } else x++;
+  }
+  return runs;
+}
+
+function centralRun(row, xCenter, bridge) {
+  // Width/extent of the run containing xCenter, bridging gaps <= bridge px
+  // (analyze.py central_run). Falls back to the widest run.
+  const n = row.length;
+  const b = Uint8Array.from(row);
+  let gapStart = -1;
+  for (let x = 0; x < n; x++) {
+    if (!b[x] && gapStart < 0) gapStart = x;
+    else if (b[x] && gapStart >= 0) {
+      if (x - gapStart <= bridge) for (let g = gapStart; g < x; g++) b[g] = 1;
+      gapStart = -1;
+    }
+  }
+  const runs = runsInRow(b);
+  if (!runs.length) return null;
+  for (const [x0, x1] of runs) {
+    if (x0 <= xCenter && xCenter <= x1) return { x0, x1, width: x1 - x0 + 1 };
+  }
+  let best = runs[0];
+  for (const r of runs) if (r[1] - r[0] > best[1] - best[0]) best = r;
+  return { x0: best[0], x1: best[1], width: best[1] - best[0] + 1 };
+}
+
+function largestComponent(mask, W, H) {
+  // 8-connected components; keep only the largest (analyze.py keeps the
+  // largest connected component of the person mask).
+  const labels = new Int32Array(W * H).fill(-1);
+  const stack = new Int32Array(W * H);
+  let bestLabel = -1, bestSize = 0, label = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (!mask[i] || labels[i] !== -1) continue;
+    let sp = 0, size = 0;
+    stack[sp++] = i; labels[i] = label;
+    while (sp > 0) {
+      const cur = stack[--sp]; size++;
+      const cx = cur % W, cy = (cur / W) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = cy + dy; if (ny < 0 || ny >= H) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const nx = cx + dx; if (nx < 0 || nx >= W) continue;
+          const ni = ny * W + nx;
+          if (mask[ni] && labels[ni] === -1) { labels[ni] = label; stack[sp++] = ni; }
+        }
+      }
+    }
+    if (size > bestSize) { bestSize = size; bestLabel = label; }
+    label++;
+  }
+  const out = new Uint8Array(W * H);
+  if (bestLabel >= 0) for (let i = 0; i < W * H; i++) out[i] = labels[i] === bestLabel ? 1 : 0;
+  return out;
+}
+
+function morphPass(src, W, H, r, isDilate) {
+  // One separable square-kernel pass (horizontal then vertical), edge-clamped.
+  const tmp = new Uint8Array(src.length), out = new Uint8Array(src.length);
+  for (let y = 0; y < H; y++) {
+    const rowOff = y * W;
+    for (let x = 0; x < W; x++) {
+      let v = isDilate ? 0 : 1;
+      for (let k = -r; k <= r; k++) {
+        const xx = Math.min(W - 1, Math.max(0, x + k));
+        const s = src[rowOff + xx];
+        if (isDilate ? s > v : s < v) v = s;
+      }
+      tmp[rowOff + x] = v;
+    }
+  }
+  for (let x = 0; x < W; x++) {
+    for (let y = 0; y < H; y++) {
+      let v = isDilate ? 0 : 1;
+      for (let k = -r; k <= r; k++) {
+        const yy = Math.min(H - 1, Math.max(0, y + k));
+        const s = tmp[yy * W + x];
+        if (isDilate ? s > v : s < v) v = s;
+      }
+      out[y * W + x] = v;
+    }
+  }
+  return out;
+}
+
+function prepareMask(floatMask, mw, mh, W, H) {
+  // analyze.py mask prep, in order: threshold > 0.5, largest connected
+  // component, morphological close with a 7x7 kernel (radius scaled to the
+  // baseline width). Resamples the model mask to image size if needed.
+  let bin = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    const sy = Math.min(mh - 1, Math.floor(y * mh / H));
+    for (let x = 0; x < W; x++) {
+      const sx = Math.min(mw - 1, Math.floor(x * mw / W));
+      bin[y * W + x] = floatMask[sy * mw + sx] > 0.5 ? 1 : 0;
+    }
+  }
+  bin = largestComponent(bin, W, H);
+  const radius = Math.max(1, Math.round(3 * W / REF_W));
+  bin = morphPass(morphPass(bin, W, H, radius, true), W, H, radius, false);
+  return bin;
+}
+
+function computeRatios(lmPx, mask, W, H, pose) {
+  // lmPx: 33 landmarks in PIXEL coordinates. mask: binary Uint8Array W*H.
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const lsh = lmPx[11], rsh = lmPx[12], lhip = lmPx[23], rhip = lmPx[24];
+  const shoulderJoint = dist(lsh, rsh), hipJoint = dist(lhip, rhip);
+  const shoulderY = (lsh.y + rsh.y) / 2, hipY = (lhip.y + rhip.y) / 2;
+  const xCenter = (lsh.x + rsh.x + lhip.x + rhip.x) / 4;
+  const span = hipY - shoulderY;
+  const bridge = Math.max(2, Math.round(10 * W / REF_W));
+  const at = frac => {
+    const y = Math.round(shoulderY + frac * span);
+    if (y < 0 || y >= H) return null;
+    return centralRun(mask.subarray(y * W, (y + 1) * W), xCenter, bridge);
+  };
+  const s0 = at(0), chest = at(0.25), w55 = at(0.55), w60 = at(0.60), w65 = at(0.65), hipLine = at(1.0);
+  let waistMin = null, waistMinFrac = null;
+  for (let f = 0.45; f <= 0.7501; f += 0.025) {
+    const r = at(f);
+    if (r && (waistMin === null || r.width < waistMin)) { waistMin = r.width; waistMinFrac = Math.round(f * 1000) / 1000; }
+  }
+  let ones = 0;
+  for (let i = 0; i < mask.length; i++) ones += mask[i];
+  const round3 = v => v == null ? null : Math.round(v * 1000) / 1000;
+  const widths = {
+    shoulderLine: s0 ? s0.width : null,
+    chest: chest ? chest.width : null,
+    waist055: w55 ? w55.width : null,
+    waist060: w60 ? w60.width : null,
+    waist065: w65 ? w65.width : null,
+    waistMin, waistMinFrac,
+    hipLine: hipLine ? hipLine.width : null
+  };
+  let ratios = null;
+  if (w60) {
+    if (pose === "front") {
+      ratios = {
+        shoulderJoint_to_hipJoint: round3(shoulderJoint / hipJoint),
+        waist060_to_hipJoint: round3(widths.waist060 / hipJoint),
+        waist060_over_shoulderJoint: round3(widths.waist060 / shoulderJoint),
+        shoulderBreadth_over_shoulderJoint: s0 ? round3(widths.shoulderLine / shoulderJoint) : null
+      };
+    } else {
+      ratios = {
+        waistDepth_to_hipDepth: hipLine ? round3(widths.waist060 / widths.hipLine) : null,
+        chestDepth_to_waistDepth: chest ? round3(widths.chest / widths.waist060) : null
+      };
+    }
+  }
+  return {
+    pose, ratios, widths,
+    joints: { shoulderJoint: Math.round(shoulderJoint * 10) / 10, hipJoint: Math.round(hipJoint * 10) / 10 },
+    coverage: ones / (W * H), imgW: W, imgH: H
+  };
+}
+// ==== END ANALYSIS CORE ====
+
+let imageLandmarker = null, imageLandmarkerPromise = null;
+
+async function ensureImageLandmarker() {
+  if (imageLandmarker) return imageLandmarker;
+  if (!imageLandmarkerPromise) {
+    imageLandmarkerPromise = (async () => {
+      const fileset = await ensureVisionFileset();
+      if (!modelAssetBuffer) await fetchModelBuffer();
+      const opts = delegate => ({
+        baseOptions: modelBaseOptions(delegate),
+        runningMode: "IMAGE", numPoses: 1, outputSegmentationMasks: true
+      });
+      try { return await PoseLandmarker.createFromOptions(fileset, opts("GPU")); }
+      catch (_) { return await PoseLandmarker.createFromOptions(fileset, opts("CPU")); }
+    })();
+  }
+  imageLandmarker = await imageLandmarkerPromise;
+  return imageLandmarker;
+}
+
+function guessPose(lmPx) {
+  const shW = Math.abs(lmPx[11].x - lmPx[12].x);
+  const torsoY = Math.abs((lmPx[23].y + lmPx[24].y) / 2 - (lmPx[11].y + lmPx[12].y) / 2);
+  return shW / Math.max(torsoY, 1e-6) > 0.42 ? "front" : "side";
+}
+
+async function analyzeStill(source, poseWanted, label) {
+  const W = source.width, H = source.height;
+  const lm = await ensureImageLandmarker();
+  const result = lm.detect(source);
+  const marks = result && result.landmarks && result.landmarks[0];
+  if (!marks) return { pose: poseWanted === "side" ? "side" : "front", label, error: "No pose detected in this image." };
+  const mpMask = result.segmentationMasks && result.segmentationMasks[0];
+  if (!mpMask) return { pose: poseWanted === "side" ? "side" : "front", label, error: "The model returned no segmentation mask — ratios need the mask, not just landmarks." };
+  let data, mw = mpMask.width || W, mh = mpMask.height || H;
+  try {
+    data = mpMask.getAsFloat32Array();
+  } catch (_) {
+    const u8 = mpMask.getAsUint8Array();
+    let mx = 0;
+    for (let i = 0; i < u8.length; i++) if (u8[i] > mx) mx = u8[i];
+    data = Float32Array.from(u8, v => mx > 0 ? v / mx : 0);
+  }
+  if (mpMask.close) { try { mpMask.close(); } catch (_) { /* noop */ } }
+  const mask = prepareMask(data, mw, mh, W, H);
+  const lmPx = marks.map(p => ({ x: p.x * W, y: p.y * H }));
+  const pose = poseWanted === "auto" ? guessPose(lmPx) : poseWanted;
+  const out = computeRatios(lmPx, mask, W, H, pose);
+  out.label = label;
+  if (!out.ratios) out.error = "Pose found, but no torso silhouette run at the navel line — ratios not computed.";
+  return out;
+}
+
+const RATIO_ROWS = {
+  front: [
+    ["Shoulder : Hip — joints", "shoulderJoint_to_hipJoint"],
+    ["Waist : Hip — joints", "waist060_to_hipJoint"],
+    ["Waist ÷ Shoulder — joints", "waist060_over_shoulderJoint"],
+    ["Shoulder breadth ÷ Shoulder", "shoulderBreadth_over_shoulderJoint"]
+  ],
+  side: [
+    ["Waist depth ÷ Hip depth", "waistDepth_to_hipDepth"],
+    ["Chest depth ÷ Waist depth", "chestDepth_to_waistDepth"]
+  ]
+};
+
+function clearBox(el, title) {
+  el.innerHTML = "";
+  const h = document.createElement("div");
+  h.className = "ahead"; h.textContent = title;
+  el.appendChild(h);
+}
+function setAnalysisWaiting(el, title, text) {
+  clearBox(el, title);
+  const p = document.createElement("p");
+  p.className = "await"; p.textContent = text;
+  el.appendChild(p);
+}
+function setAnalysisError(el, title, msg) {
+  clearBox(el, title);
+  const p = document.createElement("p");
+  p.className = "aerr"; p.textContent = msg;
+  el.appendChild(p);
+}
+function resetAnalysis(el, title) {
+  setAnalysisWaiting(el, title, `No ${title.toLowerCase()} shot analyzed yet.`);
+}
+
+function renderAnalysis(el, out) {
+  const title = (out.pose === "front" ? "Front" : "Side") + (out.label ? ` — ${out.label}` : "");
+  if (out.error) { setAnalysisError(el, title, out.error); return; }
+  clearBox(el, title);
+  const table = document.createElement("table");
+  const base = STATION_BASELINE[out.pose];
+  for (const [label, key] of RATIO_ROWS[out.pose]) {
+    const v = out.ratios ? out.ratios[key] : null;
+    const tr = document.createElement("tr");
+    const td1 = document.createElement("td"); td1.textContent = label;
+    const td2 = document.createElement("td"); td2.className = "v";
+    if (v == null) {
+      td2.textContent = "—";
+    } else {
+      td2.textContent = v.toFixed(3);
+      const bv = base ? base.ratios[key] : null;
+      if (bv != null) {
+        const d = (v - bv) / bv * 100;
+        const s = document.createElement("span");
+        s.className = "delta";
+        s.textContent = `station baseline ${bv.toFixed(3)} · ${d >= 0 ? "+" : ""}${d.toFixed(1)}% · ${Math.abs(d) <= 3 ? "within ±3% noise" : "outside noise floor"}`;
+        td2.appendChild(s);
+      }
+    }
+    tr.appendChild(td1); tr.appendChild(td2);
+    table.appendChild(tr);
+  }
+  el.appendChild(table);
+  if (!base) {
+    const nb = document.createElement("div");
+    nb.className = "meta";
+    nb.textContent = "Station baseline not set yet — deltas appear once it's set from your first station session.";
+    el.appendChild(nb);
+  }
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = `Waist @ navel line ${out.widths.waist060} px · waist min (band) ${out.widths.waistMin} px @ ${out.widths.waistMinFrac} · mask coverage ${(out.coverage * 100).toFixed(1)}% · ${out.imgW}×${out.imgH}`;
+  el.appendChild(meta);
+}
+
+async function analyzeAndRender(canvas, pose) {
+  const el = pose === "front" ? $("analysisFront") : $("analysisSide");
+  const title = pose === "front" ? "Front" : "Side";
+  setAnalysisWaiting(el, title, "Analyzing on this device…");
+  try {
+    renderAnalysis(el, await analyzeStill(canvas, pose, "captured just now"));
+  } catch (e) {
+    setAnalysisError(el, title, "Analysis failed: " + e.message);
+  }
+}
+
+async function fileToCanvas(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const c = document.createElement("canvas");
+    c.width = bmp.width; c.height = bmp.height;
+    c.getContext("2d").drawImage(bmp, 0, 0);
+    if (bmp.close) bmp.close();
+    return c;
+  } catch (_) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => {
+        const i = new Image();
+        i.onload = () => res(i); i.onerror = rej; i.src = url;
+      });
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext("2d").drawImage(img, 0, 0);
+      return c;
+    } finally { URL.revokeObjectURL(url); }
+  }
+}
+
+$("photoInput").addEventListener("change", async ev => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const el = $("analysisFile");
+  setAnalysisWaiting(el, "Photo", `Analyzing ${f.name}…`);
+  try {
+    const canvas = await fileToCanvas(f);
+    renderAnalysis(el, await analyzeStill(canvas, $("filePose").value, f.name));
+  } catch (e) {
+    setAnalysisError(el, "Photo", "Could not analyze that photo: " + e.message);
+  }
+});
+
+async function init() {
+  let loadStage = 1;
+  retryBtn.hidden = true;
+  errEl.textContent = "";
+  try {
+    loadStage = 1;
+    setLoadStage(loadStage);
+    await loadVision();
+
+    loadStage = 2;
+    setLoadStage(loadStage);
+    const fileset = await ensureVisionFileset();
+
+    loadStage = 3;
+    setLoadStage(loadStage);
+    await fetchModelBuffer();
+
+    loadStage = 4;
+    setLoadStage(loadStage);
+    let usedCpu = false;
+    try {
+      landmarker = await PoseLandmarker.createFromOptions(fileset, {
+        baseOptions: modelBaseOptions("GPU"),
+        runningMode: "VIDEO",
+        numPoses: 1
+      });
+    } catch (gpuError) {
+      usedCpu = true;
+      setStatus("GPU tracker failed — retrying on CPU");
+      try {
+        landmarker = await PoseLandmarker.createFromOptions(fileset, {
+          baseOptions: modelBaseOptions("CPU"),
+          runningMode: "VIDEO",
+          numPoses: 1
+        });
+      } catch (cpuError) {
+        throw new Error(`GPU: ${gpuError.message}; CPU: ${cpuError.message}`);
+      }
+    }
+    setStatus(usedCpu ? "Model ready (CPU mode) — press Start camera" : "Model ready — press Start camera");
+  } catch (e) {
+    const message = `Model failed to load — Step ${loadStage}/4: ${LOAD_STAGE_NAMES[loadStage]}. ${e.message}`;
+    errEl.textContent = message;
+    setStatus(message);
+    retryBtn.hidden = false;
+  }
+}
+
+function cameraErrorMessage(e) {
+  const raw = e && e.message ? e.message : String(e);
+  const embeddedFrame = window.self !== window.top;
+  const blockedWithoutPrompt = e && e.name === "NotAllowedError" &&
+    /user agent|platform|current context/i.test(raw);
+  if (embeddedFrame || blockedWithoutPrompt) {
+    return "Camera unavailable: the request was blocked without a permission prompt. " +
+      "This page is displayed inside another page's frame, and that frame doesn't pass camera access through — " +
+      "no setting inside this page can override it. Fix: open this page on its own in a browser tab, " +
+      "tap Start camera and allow the camera when asked, then use Share → Add to Home Screen from that tab. " +
+      `(${raw})`;
+  }
+  if (e && e.name === "NotAllowedError") {
+    return "Camera unavailable: camera permission was denied for this page. " +
+      "Allow camera access for this site in your browser's site settings, then tap Start camera again. " +
+      `(${raw})`;
+  }
+  return `Camera unavailable: ${raw} — allow camera access for this page in your browser settings.`;
+}
+
+async function startCamera() {
+  try {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facingMode, width: { ideal: 1440 }, height: { ideal: 1920 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    document.body.classList.toggle("rear", facingMode === "environment");
+    $("startBtn").disabled = true;
+    $("captureBtn").disabled = false;
+    $("flipBtn").disabled = false;
+    cancelAnimationFrame(raf);
+    loop();
+    return true;
+  } catch (e) {
+    const message = cameraErrorMessage(e);
+    errEl.textContent = message;
+    setStatus(message);
+    return false;
+  }
+}
+
+$("startBtn").addEventListener("click", async () => {
+  if (await startCamera() && step === "front") setStatus("Face the camera and line up with the guide");
+});
+$("flipBtn").addEventListener("click", async () => {
+  facingMode = facingMode === "user" ? "environment" : "user";
+  if (await startCamera()) setStatus(facingMode === "user" ? "Front camera" : "Rear camera");
+});
+$("captureBtn").addEventListener("click", () => { if (step !== "done") capture(); });
+$("dlFront").addEventListener("click", () => download("front"));
+$("dlSide").addEventListener("click", () => download("side"));
+$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); setStatus("Retaking front — face the camera"); });
+$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); setStatus("Retaking side — turn 90°"); });
+retryBtn.addEventListener("click", () => { init(); });
+
+init();
+</script>
+</body>
+</html>
