@@ -190,7 +190,10 @@ async function fetchModelBuffer() {
         try {
           const response = await fetch(MODEL_URL);
           if (!response.ok) throw new Error(`HTTP ${response.status} while downloading the pose model`);
-          return await response.arrayBuffer();
+          // tasks-vision's modelAssetBuffer must be a Uint8Array (or a stream reader).
+          // A raw ArrayBuffer makes the library treat it as a reader and call .read()
+          // on it — "t.read() is not a function" at tracker creation on Safari.
+          return new Uint8Array(await response.arrayBuffer());
         } catch (e) {
           lastError = e;
         }
