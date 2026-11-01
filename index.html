@@ -76,7 +76,7 @@
       <video id="cam" playsinline muted></video>
       <canvas class="overlay" id="overlay"></canvas>
       <svg class="guide" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-        <g fill="none" stroke="rgba(255,255,255,.55)" stroke-width="1.6" stroke-dasharray="5 4">
+        <g transform="translate(57 61) scale(0.62)" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2.6" stroke-dasharray="8 6">
           <circle cx="150" cy="52" r="21"/>
           <path d="M150 73 L150 84 M112 96 Q150 84 188 96 L196 210 Q197 258 188 292 L164 292 L158 210 L142 210 L136 292 L112 292 Q103 258 104 210 Z"/>
           <line x1="104" y1="150" x2="196" y2="150" stroke="rgba(255,255,255,.25)"/>
@@ -254,8 +254,12 @@ function evaluate(lm, pose) {
     push("facing", facing, "Facing the camera", "Face the camera squarely");
     const level = Math.abs(lsh.y - rsh.y) < 0.05 * torsoY + 0.008;
     push("level", level, "Shoulders level", "Level your shoulders");
-    const dist = shW > 0.26 && shW < 0.52;
-    push("dist", dist, "Distance looks right", shW <= 0.26 ? "Step closer" : "Step back");
+    // Interim station band (Nov 1): the original 0.26–0.52 range was tuned to the old
+    // close-up Sep/Oct photos and is unreachable at a fixed mirror station (at ~15 ft
+    // shoulder width is only ~0.13 of frame). Widened for tuning; after the Day-1
+    // baseline session, tighten to ±12% of the measured station shoulder width.
+    const dist = shW > 0.10 && shW < 0.55;
+    push("dist", dist, "Distance looks right", shW <= 0.10 ? "Step closer" : "Step back");
     const framed = nose.y > 0.03 && mHip.y < 0.80 && (vis(lk) || vis(rk) || mHip.y < 0.74);
     push("framed", framed, "Head to hips in frame", "Adjust so your head and hips both fit");
     const ordered = ["facing", "center", "level", "dist", "framed"];
@@ -264,8 +268,8 @@ function evaluate(lm, pose) {
   } else {
     const profile = shW / Math.max(torsoY, 1e-6) < 0.32 && hipW / Math.max(torsoY, 1e-6) < 0.34;
     push("facing", profile, "Side-on to the camera", "Turn 90° — stand side-on");
-    const dist = torsoY > 0.28 && torsoY < 0.46;
-    push("dist", dist, "Distance looks right", torsoY <= 0.28 ? "Step closer" : "Step back");
+    const dist = torsoY > 0.15 && torsoY < 0.52;
+    push("dist", dist, "Distance looks right", torsoY <= 0.15 ? "Step closer" : "Step back");
     const framed = nose.y > 0.03 && mHip.y < 0.82;
     push("framed", framed, "Head to hips in frame", "Adjust so your head and hips both fit");
     const ordered = ["facing", "center", "dist", "framed"];
