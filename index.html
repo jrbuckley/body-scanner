@@ -22,9 +22,10 @@
   .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .35s; }
   .panel { flex: 1 1 260px; min-width: 250px; }
   .panel h2 { font-size: 15px; margin: 6px 0 8px; color: #cfcfcf; font-weight: 600; }
-  ul.checks { list-style: none; margin: 0 0 16px; padding: 0; }
-  ul.checks li { padding: 7px 10px; margin-bottom: 6px; border: 1px solid #2c2c2c; border-radius: 9px; font-size: 14px; color: #8d8d8d; display: flex; gap: 8px; align-items: center; }
-  ul.checks li .dot { width: 10px; height: 10px; border-radius: 50%; background: #444; flex: none; }
+  ul.checks { position: absolute; top: 8px; left: 8px; z-index: 6; list-style: none; margin: 0; padding: 0; max-width: 72%; }
+  ul.checks li { padding: 4px 9px; margin-bottom: 5px; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; font-size: 12px; color: #d8d8d8; background: rgba(0,0,0,.55); display: flex; gap: 7px; align-items: center; }
+  ul.checks li span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  ul.checks li .dot { width: 8px; height: 8px; border-radius: 50%; background: #888; flex: none; }
   ul.checks li.ok { color: #e8f5e9; border-color: #2e7d32; }
   ul.checks li.ok .dot { background: #43a047; }
   ul.checks li.bad { color: #ffe9e9; border-color: #7d2e2e; }
@@ -57,9 +58,9 @@
     header h1 { font-size: 18px; }
     main { flex-direction: column; padding: 8px 12px max(16px, env(safe-area-inset-bottom)); gap: 12px; }
     .stage { flex: none; width: 100%; }
+    .frame { max-height: 64vh; margin: 0 auto; }
     .panel { flex: none; width: 100%; min-width: 0; }
     button { min-height: 48px; font-size: 16px; }
-    ul.checks li { font-size: 15px; padding: 9px 11px; }
     .statusbar { font-size: 16px; }
     select, input[type="file"] { font-size: 16px; min-height: 44px; }
   }
@@ -83,6 +84,7 @@
           <line x1="104" y1="238" x2="196" y2="238" stroke="rgba(255,255,255,.25)"/>
         </g>
       </svg>
+      <ul class="checks" id="checks"></ul>
       <div class="countdown" id="countdown">3</div>
       <div class="flash" id="flash"></div>
       <div class="statusbar" id="status">Loading pose model…</div>
@@ -95,7 +97,6 @@
     <button id="flipBtn" class="secondary" disabled>Switch camera</button>
     <button id="retryBtn" class="secondary" hidden>Retry model load</button>
     <h2 id="stepTitle">Step 1 of 2 — Front</h2>
-    <ul class="checks" id="checks"></ul>
     <h2>Captured</h2>
     <div class="shots">
       <div class="shot">
@@ -225,6 +226,7 @@ function renderChecks(list) {
   for (const c of list) {
     const li = document.createElement("li");
     li.className = c.state;
+    li.title = c.label;
     li.innerHTML = `<span class="dot"></span><span></span>`;
     li.lastChild.textContent = c.label;
     checksEl.appendChild(li);
