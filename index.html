@@ -14,7 +14,7 @@
   main { display: flex; gap: 18px; padding: 10px 20px 20px; flex-wrap: wrap; }
   .stage { position: relative; flex: 0 1 520px; }
   .frame { position: relative; width: 100%; aspect-ratio: 3 / 4; background: #111; border-radius: 14px; overflow: hidden; }
-  video, canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  video, canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; transform: scaleX(-1); }
   canvas.overlay { pointer-events: none; }
   .guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .statusbar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; background: linear-gradient(transparent, rgba(0,0,0,.82)); font-size: 17px; font-weight: 600; text-align: center; }
@@ -72,7 +72,7 @@
 </header>
 <main>
   <div class="stage">
-    <div class="frame">
+    <div class="frame" id="frameBox">
       <video id="cam" playsinline muted></video>
       <canvas class="overlay" id="overlay"></canvas>
       <svg class="guide" viewBox="0 0 300 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -87,6 +87,7 @@
       <div class="flash" id="flash"></div>
       <div class="statusbar" id="status">Loading pose model…</div>
     </div>
+    <p class="note" id="streamInfo" style="margin-top:8px"></p>
   </div>
   <div class="panel">
     <button id="startBtn">Start camera</button>
@@ -823,6 +824,15 @@ async function startCamera() {
     });
     video.srcObject = stream;
     await video.play();
+    // Show the FULL stream at its true aspect ratio. The previous setup forced the
+    // stream into a fixed 3/4 box with object-fit: cover, which center-crops (zooms)
+    // whenever Safari hands back a different aspect — e.g. a landscape stream lost
+    // ~58% of its width. Matching the box to the stream removes the CSS zoom, and
+    // the checks/analysis always used the full frame anyway.
+    if (video.videoWidth && video.videoHeight) {
+      $("frameBox").style.aspectRatio = video.videoWidth + " / " + video.videoHeight;
+      $("streamInfo").textContent = "Camera stream: " + video.videoWidth + "×" + video.videoHeight + " — full frame shown, no crop.";
+    }
     document.body.classList.toggle("rear", facingMode === "environment");
     $("startBtn").disabled = true;
     $("captureBtn").disabled = false;
