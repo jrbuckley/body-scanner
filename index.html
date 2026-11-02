@@ -18,6 +18,13 @@
   canvas.overlay { pointer-events: none; }
   .guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+  .horizon { position: absolute; left: -12%; right: -12%; top: 50%; height: 2px; margin-top: -1px; background: rgba(255,235,59,.7); z-index: 4; pointer-events: none; }
+  .horizon[hidden] { display: none; }
+  .levelchip { position: absolute; left: 8px; bottom: 56px; z-index: 6; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.25); color: #eee; border-radius: 999px; padding: 4px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .levelchip[hidden] { display: none; }
+  .levelchip.ok { border-color: #43a047; }
+  .levelchip.warn { border-color: #c9a227; }
+  .levelchip.bad { border-color: #c62828; }
   .statusbar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; background: linear-gradient(transparent, rgba(0,0,0,.82)); font-size: 17px; font-weight: 600; text-align: center; }
   .countdown { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-size: 150px; font-weight: 700; color: #fff; text-shadow: 0 4px 30px rgba(0,0,0,.7); pointer-events: none; }
   .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .35s; }
@@ -94,6 +101,8 @@
           <line x1="150" y1="0" x2="150" y2="400"/><line x1="0" y1="200" x2="300" y2="200"/>
         </g>
       </svg>
+      <div class="horizon" id="horizonLine" hidden></div>
+      <div class="levelchip" id="levelChip" hidden>Level: —</div>
       <ul class="checks" id="checks"></ul>
       <div class="countdown" id="countdown">3</div>
       <div class="flash" id="flash"></div>
@@ -106,6 +115,8 @@
     <button id="captureBtn" class="secondary" disabled>Capture now</button>
     <button id="flipBtn" class="secondary" disabled>Switch camera</button>
     <button id="gridBtn" class="secondary">Grid: on</button>
+    <button id="levelBtn" class="secondary">Enable level</button>
+    <button id="zeroBtn" class="secondary" hidden>Zero level</button>
     <button id="retryBtn" class="secondary" hidden>Retry model load</button>
     <h2 id="stepTitle">Step 1 of 2 — Front</h2>
     <h2>Captured</h2>
@@ -765,6 +776,7 @@ function sessionPayload() {
     version: 1,
     analysisVersion: ANALYSIS_VERSION,
     station: "iphone-on-mirror",
+    stationAlignment: lastLevel ? { rollDeg: +lastLevel.roll.toFixed(2), pitchDeg: +lastLevel.pitch.toFixed(2) } : null,
     exportedAt: new Date().toISOString(),
     results: { front: sessionResults.front, side: sessionResults.side }
   };
@@ -837,6 +849,61 @@ $("gridBtn").addEventListener("click", () => {
   const on = g.style.display !== "none";
   g.style.display = on ? "none" : "";
   $("gridBtn").textContent = on ? "Grid: off" : "Grid: on";
+});
+
+// ==== Motion level (roll/pitch from gravity, iOS permission flow) ====
+let levelZero = { roll: 0, pitch: 0 };
+let lastLevel = null;      // zero-relative degrees, refreshed ~10x/sec once enabled
+let lastMotionAt = 0;
+
+function onMotion(e) {
+  const now = performance.now();
+  if (now - lastMotionAt < 100) return;
+  lastMotionAt = now;
+  const g = e.accelerationIncludingGravity;
+  if (!g || g.x == null || g.y == null) return;
+  const roll = Math.atan2(g.x, -g.y) * 180 / Math.PI;
+  const pitch = Math.atan2(g.z || 0, -g.y) * 180 / Math.PI;
+  const dRoll = roll - levelZero.roll;
+  const dPitch = pitch - levelZero.pitch;
+  lastLevel = { roll: dRoll, pitch: dPitch, rawRoll: roll, rawPitch: pitch };
+  const chip = $("levelChip");
+  const fmt = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "°";
+  chip.textContent = `Roll ${fmt(dRoll)} · Pitch ${fmt(dPitch)}`;
+  const worst = Math.max(Math.abs(dRoll), Math.abs(dPitch));
+  chip.className = "levelchip " + (worst <= 1.5 ? "ok" : worst <= 3 ? "warn" : "bad");
+  $("horizonLine").style.transform = `rotate(${-dRoll}deg)`;
+}
+
+$("levelBtn").addEventListener("click", async () => {
+  let granted = true;
+  try {
+    if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === "function") {
+      granted = (await DeviceMotionEvent.requestPermission()) === "granted";
+    }
+    if (granted && window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function") {
+      granted = (await DeviceOrientationEvent.requestPermission()) === "granted";
+    }
+  } catch (_) { granted = false; }
+  if (!granted) {
+    const msg = "Motion access denied — if no prompt appeared, enable Settings → Safari → Motion & Orientation Access, then tap Enable level again.";
+    errEl.textContent = msg;
+    setStatus(msg);
+    return;
+  }
+  window.addEventListener("devicemotion", onMotion);
+  $("levelChip").hidden = false;
+  $("horizonLine").hidden = false;
+  $("zeroBtn").hidden = false;
+  $("levelBtn").disabled = true;
+  $("levelBtn").textContent = "Level: on";
+  setStatus("Level on — the yellow line tracks true horizon; Zero level sets the current mount angle as 0°");
+});
+
+$("zeroBtn").addEventListener("click", () => {
+  if (!lastLevel) return;
+  levelZero = { roll: lastLevel.rawRoll, pitch: lastLevel.rawPitch };
+  setStatus("Level zeroed at the current mount angle");
 });
 
 async function fileToCanvas(file) {
