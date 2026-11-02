@@ -255,8 +255,17 @@ function evaluate(lm, pose) {
   const centered = Math.abs(mSh.x - 0.5) < 0.07 && Math.abs(mHip.x - 0.5) < 0.09;
   push("center", centered, "Centered", "Move to the center of the frame");
 
+  // Aspect invariance (Nov 2 fix): landmark x/y are normalized per-axis, so a raw
+  // shW/torsoY ratio changes with the frame's aspect ratio. The 0.55 threshold was
+  // tuned on the old PORTRAIT photos (aspect 0.75); Jorge's station stream is
+  // LANDSCAPE 4:3 (aspect 1.33), where an upright front scores ~0.50 and only passes
+  // when he bends forward (foreshortening the torso). Multiply x-spans by the aspect
+  // to get physical ratios, and express thresholds in those terms:
+  // front 0.55 × 0.75 ≈ 0.42; profile 0.32 × 0.75 ≈ 0.24, 0.34 × 0.75 ≈ 0.26.
+  const aspect = (video.videoWidth && video.videoHeight) ? video.videoWidth / video.videoHeight : 1;
+  const shWp = shW * aspect, hipWp = hipW * aspect;
   if (pose === "front") {
-    const facing = shW / Math.max(torsoY, 1e-6) > 0.55;
+    const facing = shWp / Math.max(torsoY, 1e-6) > 0.42;
     push("facing", facing, "Facing the camera", "Face the camera squarely");
     const level = Math.abs(lsh.y - rsh.y) < 0.05 * torsoY + 0.008;
     push("level", level, "Shoulders level", "Level your shoulders");
@@ -272,7 +281,7 @@ function evaluate(lm, pose) {
     const bad = ordered.map(id => checks.find(c => c.id === id)).find(c => c && c.state !== "ok");
     return { checks, hint: bad ? bad.label : "Hold still…" };
   } else {
-    const profile = shW / Math.max(torsoY, 1e-6) < 0.32 && hipW / Math.max(torsoY, 1e-6) < 0.34;
+    const profile = shWp / Math.max(torsoY, 1e-6) < 0.24 && hipWp / Math.max(torsoY, 1e-6) < 0.26;
     push("facing", profile, "Side-on to the camera", "Turn 90° — stand side-on");
     const dist = torsoY > 0.15 && torsoY < 0.52;
     push("dist", dist, "Distance looks right", torsoY <= 0.15 ? "Step closer" : "Step back");
