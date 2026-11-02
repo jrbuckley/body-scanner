@@ -17,6 +17,7 @@
   video, canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; transform: scaleX(-1); }
   canvas.overlay { pointer-events: none; }
   .guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
   .statusbar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px; background: linear-gradient(transparent, rgba(0,0,0,.82)); font-size: 17px; font-weight: 600; text-align: center; }
   .countdown { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; font-size: 150px; font-weight: 700; color: #fff; text-shadow: 0 4px 30px rgba(0,0,0,.7); pointer-events: none; }
   .flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .35s; }
@@ -84,6 +85,15 @@
           <line x1="104" y1="238" x2="196" y2="238" stroke="rgba(255,255,255,.25)"/>
         </g>
       </svg>
+      <svg class="grid" id="gridOverlay" viewBox="0 0 300 400" preserveAspectRatio="none" aria-hidden="true">
+        <g stroke="rgba(255,255,255,.20)" stroke-width="1">
+          <line x1="100" y1="0" x2="100" y2="400"/><line x1="200" y1="0" x2="200" y2="400"/>
+          <line x1="0" y1="133" x2="300" y2="133"/><line x1="0" y1="267" x2="300" y2="267"/>
+        </g>
+        <g stroke="rgba(255,235,59,.45)" stroke-width="1.2">
+          <line x1="150" y1="0" x2="150" y2="400"/><line x1="0" y1="200" x2="300" y2="200"/>
+        </g>
+      </svg>
       <ul class="checks" id="checks"></ul>
       <div class="countdown" id="countdown">3</div>
       <div class="flash" id="flash"></div>
@@ -95,6 +105,7 @@
     <button id="startBtn">Start camera</button>
     <button id="captureBtn" class="secondary" disabled>Capture now</button>
     <button id="flipBtn" class="secondary" disabled>Switch camera</button>
+    <button id="gridBtn" class="secondary">Grid: on</button>
     <button id="retryBtn" class="secondary" hidden>Retry model load</button>
     <h2 id="stepTitle">Step 1 of 2 — Front</h2>
     <h2>Captured</h2>
@@ -115,6 +126,14 @@
     <h2>Analysis — computed on this device</h2>
     <div class="analysis" id="analysisFront"><div class="ahead">Front</div><p class="await">No front shot analyzed yet.</p></div>
     <div class="analysis" id="analysisSide"><div class="ahead">Side</div><p class="await">No side shot analyzed yet.</p></div>
+    <h2>Send results</h2>
+    <div class="analysis" id="sendBox">
+      <div class="ahead">Session data</div>
+      <p class="await" id="sendStatus">No captures yet — results appear here after a shot is analyzed.</p>
+      <button id="shareBtn" disabled>Share results</button>
+      <button id="copyBtn" class="secondary" disabled>Copy JSON</button>
+      <button id="dlJsonBtn" class="secondary" disabled>Download JSON</button>
+    </div>
     <h2>Analyze a photo</h2>
     <select id="filePose" aria-label="Photo pose">
       <option value="auto">Pose: auto-detect</option>
@@ -716,11 +735,109 @@ async function analyzeAndRender(canvas, pose) {
   const title = pose === "front" ? "Front" : "Side";
   setAnalysisWaiting(el, title, "Analyzing on this device…");
   try {
-    renderAnalysis(el, await analyzeStill(canvas, pose, "captured just now"));
+    const out = await analyzeStill(canvas, pose, "captured just now");
+    renderAnalysis(el, out);
+    if (out && out.ratios) {
+      sessionResults[pose] = {
+        pose,
+        capturedAt: new Date().toISOString(),
+        ratios: out.ratios,
+        widths: out.widths,
+        maskCoverage: out.coverage,
+        image: { width: out.imgW, height: out.imgH }
+      };
+    } else {
+      sessionResults[pose] = null;
+    }
+    refreshSendBox();
   } catch (e) {
     setAnalysisError(el, title, "Analysis failed: " + e.message);
   }
 }
+
+// ==== Send results (interim transport until the cloud endpoint exists) ====
+const sessionResults = { front: null, side: null };
+const ANALYSIS_VERSION = "on-device-ratios-2026-11-02";
+
+function sessionPayload() {
+  return {
+    type: "body-scanner-session",
+    version: 1,
+    analysisVersion: ANALYSIS_VERSION,
+    station: "iphone-on-mirror",
+    exportedAt: new Date().toISOString(),
+    results: { front: sessionResults.front, side: sessionResults.side }
+  };
+}
+
+function refreshSendBox() {
+  const have = sessionResults.front || sessionResults.side;
+  $("shareBtn").disabled = !have;
+  $("copyBtn").disabled = !have;
+  $("dlJsonBtn").disabled = !have;
+  if (have) {
+    const parts = [];
+    if (sessionResults.front) parts.push("front");
+    if (sessionResults.side) parts.push("side");
+    $("sendStatus").textContent = `Ready to send: ${parts.join(" + ")} ratios` +
+      (parts.length === 2 ? " — full session." : " — take the other shot for a full session.");
+  }
+}
+
+function setSendStatus(t) { $("sendStatus").textContent = t; }
+
+$("shareBtn").addEventListener("click", async () => {
+  const payload = JSON.stringify(sessionPayload(), null, 2);
+  const files = [];
+  for (const pose of ["front", "side"]) {
+    if (shots[pose]) {
+      try { files.push(new File([shots[pose].blob], filename(pose), { type: "image/jpeg" })); } catch (_) { /* older engines */ }
+    }
+  }
+  try {
+    if (files.length && navigator.canShare && navigator.canShare({ files })) {
+      await navigator.share({ title: "Body scanner session", text: payload, files });
+      setSendStatus("Shared (photos + results JSON).");
+    } else if (navigator.share) {
+      await navigator.share({ title: "Body scanner session", text: payload });
+      setSendStatus("Shared results JSON (photos stay as separate downloads).");
+    } else {
+      await navigator.clipboard.writeText(payload);
+      setSendStatus("Sharing isn't available here — results JSON copied to clipboard instead.");
+    }
+  } catch (e) {
+    if (e && e.name !== "AbortError") setSendStatus("Share failed: " + e.message);
+  }
+});
+
+$("copyBtn").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(sessionPayload(), null, 2));
+    setSendStatus("Results JSON copied to clipboard.");
+  } catch (e) {
+    setSendStatus("Copy failed: " + e.message);
+  }
+});
+
+$("dlJsonBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(sessionPayload(), null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const d = new Date();
+  const p = n => String(n).padStart(2, "0");
+  a.href = url;
+  a.download = `body-scanner-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  setSendStatus("Results JSON downloaded.");
+});
+
+$("gridBtn").addEventListener("click", () => {
+  const g = $("gridOverlay");
+  const on = g.style.display !== "none";
+  g.style.display = on ? "none" : "";
+  $("gridBtn").textContent = on ? "Grid: off" : "Grid: on";
+});
 
 async function fileToCanvas(file) {
   try {
@@ -869,8 +986,8 @@ $("flipBtn").addEventListener("click", async () => {
 $("captureBtn").addEventListener("click", () => { if (step !== "done") capture(); });
 $("dlFront").addEventListener("click", () => download("front"));
 $("dlSide").addEventListener("click", () => download("side"));
-$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); setStatus("Retaking front — face the camera"); });
-$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); setStatus("Retaking side — turn 90°"); });
+$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); sessionResults.front = null; refreshSendBox(); setStatus("Retaking front — face the camera"); });
+$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); sessionResults.side = null; refreshSendBox(); setStatus("Retaking side — turn 90°"); });
 retryBtn.addEventListener("click", () => { init(); });
 
 init();
