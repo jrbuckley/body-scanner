@@ -40,6 +40,8 @@
   ul.checks li.bad .dot { background: #c62828; }
   button { background: #f2f2f2; color: #111; border: 0; border-radius: 10px; padding: 11px 16px; font-size: 15px; font-weight: 600; cursor: pointer; margin: 0 8px 8px 0; }
   button.secondary { background: #262626; color: #f2f2f2; border: 1px solid #3a3a3a; }
+  .chip { width: auto; padding: 8px 12px; margin: 0 6px 6px 0; font-size: 14px; }
+  .chip[aria-pressed="true"] { background: #f5c542; color: #111; border-color: #f5c542; font-weight: 700; }
   button:disabled { opacity: .4; cursor: default; }
   button[hidden] { display: none; }
   .shots { display: flex; gap: 12px; margin-top: 6px; }
@@ -141,8 +143,17 @@
     <h2>Upload</h2>
     <div class="analysis" id="sendBox">
       <div class="ahead">Session data</div>
+      <p class="await" id="waistEst"></p>
       <p class="await" id="sendStatus">No captures yet — results appear here after a shot is analyzed.</p>
-      <button id="uploadBtn" disabled>Upload session</button>
+      <div class="ahead" style="margin-top:10px">Session context</div>
+      <p class="await">Yesterday / last night — tap what applies. Stored with the session; this is what separates a bloat spike from real gain.</p>
+      <div id="ctxChips">
+        <button class="secondary chip" data-ctx="restaurant" aria-pressed="false">Restaurant</button>
+        <button class="secondary chip" data-ctx="alcohol" aria-pressed="false">Alcohol</button>
+        <button class="secondary chip" data-ctx="travel" aria-pressed="false">Travel</button>
+        <button class="secondary chip" data-ctx="high-sodium" aria-pressed="false">High sodium</button>
+      </div>
+      <button id="uploadBtn" disabled style="margin-top:10px">Upload session</button>
       <div class="ahead" style="margin-top:12px">Backend</div>
       <p class="await" id="backendStatus">Backend: checking…</p>
       <button id="disconnectBtn" class="secondary" hidden>Disconnect backend on this device</button>
@@ -168,7 +179,7 @@ const video = $("cam"), overlay = $("overlay"), octx = overlay.getContext("2d");
 const statusEl = $("status"), checksEl = $("checks"), errEl = $("err"), retryBtn = $("retryBtn");
 const countdownEl = $("countdown"), flashEl = $("flash");
 
-const LM = { NOSE: 0, L_SH: 11, R_SH: 12, L_HIP: 23, R_HIP: 24, L_KNEE: 25, R_KNEE: 26 };
+const LM = { NOSE: 0, L_SH: 11, R_SH: 12, L_HIP: 23, R_HIP: 24, L_KNEE: 25, R_KNEE: 26, L_ANK: 27, R_ANK: 28 };
 const HOLD_MS = 1500, COUNT_MS = 3000;
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
@@ -617,6 +628,7 @@ function computeRatios(lmPx, mask, W, H, pose) {
   return {
     pose, ratios, widths,
     joints: { shoulderJoint: Math.round(shoulderJoint * 10) / 10, hipJoint: Math.round(hipJoint * 10) / 10 },
+    span: { noseYpx: lm[LM.NOSE].y * H, ankleYpx: (lm[LM.L_ANK].y + lm[LM.R_ANK].y) / 2 * H },
     coverage: ones / (W * H), imgW: W, imgH: H
   };
 }
@@ -764,6 +776,7 @@ async function analyzeAndRender(canvas, pose) {
         ratios: out.ratios,
         widths: out.widths,
         joints: out.joints,
+        scaleCmPerPx: bodyScaleCmPerPx(out.span),
         maskCoverage: out.coverage,
         image: { width: out.imgW, height: out.imgH }
       };
@@ -781,7 +794,60 @@ async function analyzeAndRender(canvas, pose) {
 const sessionResults = { front: null, side: null };
 const ANALYSIS_VERSION = "on-device-ratios-2026-11-02";
 
+// ==== Waist circumference estimate (Jorge item 3, Nov 2) ====
+// Scale is anchored to Jorge's known stature via the nose→ankle span in the
+// image (0.893 × height: nose height ≈ 0.936H, ankle ≈ 0.043H). Validated
+// offline against the Sep 30 archive pair: three independent full-body anchors
+// (shoulder→ankle, nose→ankle, nose→heel) agreed within ~3% and put the
+// shoulder-joint width at 40–42 cm, anatomically right; the short torso-span
+// anchor was the outlier and was rejected. Each pose image gets its own scale;
+// waist width comes from the front silhouette at the navel line, waist depth
+// from the side, circumference = Ramanujan ellipse approximation. Displayed as
+// a ROUGH estimate — tape pairs will calibrate a correction factor; the tape
+// measurement is the truth it trains against.
+const USER_HEIGHT_CM = 180.3; // 5'11"
+const NOSE_ANKLE_SPAN_FRAC = 0.893;
+
+function bodyScaleCmPerPx(span) {
+  if (!span) return null;
+  const spanPx = span.ankleYpx - span.noseYpx;
+  if (!(spanPx > 100)) return null;
+  return (USER_HEIGHT_CM * NOSE_ANKLE_SPAN_FRAC) / spanPx;
+}
+
+function sessionWaistEstimate() {
+  const f = sessionResults.front, s = sessionResults.side;
+  if (!f || !s || !f.scaleCmPerPx || !s.scaleCmPerPx) return null;
+  if (!f.widths || !s.widths || !(f.widths.waist060 > 0) || !(s.widths.waist060 > 0)) return null;
+  const widthCm = f.widths.waist060 * f.scaleCmPerPx;
+  const depthCm = s.widths.waist060 * s.scaleCmPerPx;
+  const a = widthCm / 2, b = depthCm / 2;
+  const circCm = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+  return { cm: circCm, inches: circCm / 2.54, widthCm, depthCm };
+}
+
+function refreshWaistEst() {
+  const est = sessionWaistEstimate();
+  $("waistEst").textContent = est
+    ? `Estimated waist: ≈${Math.round(est.inches)} in (rough — anchored to your height from the two shots; your tape readings calibrate it).`
+    : (sessionResults.front || sessionResults.side)
+      ? "Waist estimate appears once both the front and side shots are in."
+      : "";
+}
+
+// Session context chips (Jorge item 4, Nov 2): stored with the upload as
+// "ctx:<name>" entries in the session's quality_flags.
+const sessionContext = new Set();
+document.querySelectorAll("#ctxChips .chip").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const key = btn.dataset.ctx;
+    if (sessionContext.has(key)) { sessionContext.delete(key); btn.setAttribute("aria-pressed", "false"); }
+    else { sessionContext.add(key); btn.setAttribute("aria-pressed", "true"); }
+  });
+});
+
 function refreshSendBox() {
+  refreshWaistEst();
   const pending = ["front", "side"].filter(p => sessionResults[p] && !postedIds[p]);
   const done = ["front", "side"].filter(p => sessionResults[p] && postedIds[p]);
   $("uploadBtn").disabled = pending.length === 0;
@@ -857,7 +923,7 @@ async function postCapture(pose, out) {
         pose,
         img_w: out.imgW, img_h: out.imgH,
         mask_coverage: out.coverage,
-        quality_flags: [],
+        quality_flags: [...sessionContext].map(c => "ctx:" + c),
         image_sha256: shot ? shot.sha256 : null,
         local_archive_ref: null
       },
@@ -866,7 +932,15 @@ async function postCapture(pose, out) {
         landmark_widths: { shoulderJointPx: out.joints.shoulderJoint, hipJointPx: out.joints.hipJoint },
         silhouette_profile: out.widths,
         waist_width_px: pose === "front" ? out.widths.waist060 : null,
-        waist_depth_px: pose === "side" ? out.widths.waist060 : null
+        waist_depth_px: pose === "side" ? out.widths.waist060 : null,
+        // Session waist estimate rides on the front row (side row if no front)
+        // so exports never double-count it. Labeled estimate end to end.
+        waist_circ_est_cm: (() => {
+          const est = sessionWaistEstimate();
+          if (!est) return null;
+          if (pose === "front" || !sessionResults.front) return +est.cm.toFixed(1);
+          return null;
+        })()
       }
     };
     const resp = await fetch(endpoint + "/v1/captures", {
