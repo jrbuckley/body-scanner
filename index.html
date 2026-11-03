@@ -60,6 +60,7 @@
   .analysis .meta { color: #8d8d8d; font-size: 12px; margin-top: 6px; }
   .analysis .aerr { color: #ff9c9c; margin: 0; }
   select { background: #262626; color: #f2f2f2; border: 1px solid #3a3a3a; border-radius: 8px; padding: 8px; font-size: 14px; margin: 0 8px 8px 0; }
+  input[type="text"], input[type="password"], input[type="number"] { background: #262626; color: #f2f2f2; border: 1px solid #3a3a3a; border-radius: 8px; padding: 8px; font-size: 14px; box-sizing: border-box; }
   input[type="file"] { font-size: 14px; margin: 0 0 8px; max-width: 100%; }
   @media (max-width: 760px) {
     header { padding: 12px 14px 4px; }
@@ -144,6 +145,16 @@
       <button id="shareBtn" disabled>Share results</button>
       <button id="copyBtn" class="secondary" disabled>Copy JSON</button>
       <button id="dlJsonBtn" class="secondary" disabled>Download JSON</button>
+      <div class="ahead" style="margin-top:12px">Backend (auto-post)</div>
+      <p class="await">Endpoint and your device token live only on this phone (browser storage — never in the published page). With a token saved, each analyzed shot posts itself, and the Renpho entry below pairs to the session.</p>
+      <input type="text" id="endpointInput" autocomplete="off" style="width:100%;margin-bottom:6px">
+      <input type="password" id="tokenInput" placeholder="Device token" autocomplete="off" style="width:100%;margin-bottom:6px">
+      <button id="saveBackendBtn" class="secondary">Save backend settings</button>
+      <div class="ahead" style="margin-top:12px">Renpho (paired reading)</div>
+      <input type="number" id="rWeight" placeholder="Weight lb" inputmode="decimal" style="width:31%">
+      <input type="number" id="rBf" placeholder="Body fat %" inputmode="decimal" style="width:31%">
+      <input type="number" id="rMuscle" placeholder="Muscle lb" inputmode="decimal" style="width:31%">
+      <button id="logRenphoBtn" class="secondary" style="margin-top:6px">Log Renpho reading</button>
     </div>
     <h2>Analyze a photo</h2>
     <select id="filePose" aria-label="Photo pose">
@@ -347,6 +358,12 @@ function capture() {
     if (shots[step]) URL.revokeObjectURL(shots[step].url);
     shots[step] = { blob, url: URL.createObjectURL(blob) };
     const cap = step;
+    shots[cap].capturedAt = new Date().toISOString();
+    shots[cap].sha256 = null;
+    shots[cap].shaPromise = blob.arrayBuffer()
+      .then(buf => crypto.subtle.digest("SHA-256", buf))
+      .then(h => { shots[cap].sha256 = [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, "0")).join(""); })
+      .catch(() => { /* hash is metadata; capture proceeds without it */ });
     const thumb = cap === "front" ? $("thumbFront") : $("thumbSide");
     thumb.src = shots[cap].url;
     (cap === "front" ? $("dlFront") : $("dlSide")).disabled = false;
@@ -761,6 +778,7 @@ async function analyzeAndRender(canvas, pose) {
       sessionResults[pose] = null;
     }
     refreshSendBox();
+    if (out && out.ratios) postCapture(pose, out);
   } catch (e) {
     setAnalysisError(el, title, "Analysis failed: " + e.message);
   }
@@ -828,6 +846,97 @@ $("copyBtn").addEventListener("click", async () => {
     setSendStatus("Results JSON copied to clipboard.");
   } catch (e) {
     setSendStatus("Copy failed: " + e.message);
+  }
+});
+
+// ==== Backend auto-post (Cloudflare Worker; token only in this phone's storage) ====
+const DEFAULT_ENDPOINT = "https://body-scanner-api.jorgebuckleydeveloper.workers.dev";
+const postedIds = { front: null, side: null };
+
+function backendConfig() {
+  return {
+    endpoint: (localStorage.getItem("bs_endpoint") || DEFAULT_ENDPOINT).replace(/\/+$/, ""),
+    token: localStorage.getItem("bs_device_token") || ""
+  };
+}
+
+$("endpointInput").value = localStorage.getItem("bs_endpoint") || DEFAULT_ENDPOINT;
+$("tokenInput").value = localStorage.getItem("bs_device_token") || "";
+
+$("saveBackendBtn").addEventListener("click", () => {
+  localStorage.setItem("bs_endpoint", $("endpointInput").value.trim() || DEFAULT_ENDPOINT);
+  localStorage.setItem("bs_device_token", $("tokenInput").value.trim());
+  setSendStatus($("tokenInput").value.trim() ? "Backend settings saved — future shots will auto-post." : "Backend token cleared — auto-post off; share/copy still work.");
+});
+
+async function postCapture(pose, out) {
+  const { endpoint, token } = backendConfig();
+  if (!token) return; // auto-post is opt-in via the settings above
+  try {
+    const shot = shots[pose];
+    if (shot && shot.shaPromise) {
+      await Promise.race([shot.shaPromise, new Promise(r => setTimeout(r, 1500))]);
+    }
+    const id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() :
+      "cap-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+    const body = {
+      session: {
+        id,
+        captured_at: (shot && shot.capturedAt) || new Date().toISOString(),
+        station_id: "iphone-on-mirror",
+        device: "iphone",
+        page_version: "gh-pages",
+        analysis_version: ANALYSIS_VERSION,
+        pose,
+        img_w: out.imgW, img_h: out.imgH,
+        mask_coverage: out.coverage,
+        quality_flags: [],
+        image_sha256: shot ? shot.sha256 : null,
+        local_archive_ref: null
+      },
+      features: {
+        ratios: out.ratios,
+        landmark_widths: { shoulderJointPx: out.joints.shoulderJoint, hipJointPx: out.joints.hipJoint },
+        silhouette_profile: out.widths,
+        waist_width_px: pose === "front" ? out.widths.waist060 : null,
+        waist_depth_px: pose === "side" ? out.widths.waist060 : null
+      }
+    };
+    const resp = await fetch(endpoint + "/v1/captures", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    postedIds[pose] = id;
+    setSendStatus(`Posted ${pose} shot to the backend ✓ (session ${id.slice(0, 8)}…)`);
+  } catch (e) {
+    setSendStatus(`Backend post for ${pose} failed (${e.message}) — share/copy still work, and a retake re-posts.`);
+  }
+}
+
+$("logRenphoBtn").addEventListener("click", async () => {
+  const { endpoint, token } = backendConfig();
+  if (!token) { setSendStatus("Save a device token above first — the Renpho entry posts to the same backend."); return; }
+  const num = id => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
+  const body = { measured_at: new Date().toISOString() };
+  const w = num("rWeight"), bf = num("rBf"), m = num("rMuscle");
+  if (w !== null) body.weight_lb = w;
+  if (bf !== null) body.body_fat_pct = bf;
+  if (m !== null) body.muscle_lb = m;
+  if (Object.keys(body).length < 2) { setSendStatus("Enter at least the weight from the Renpho scan."); return; }
+  const pair = postedIds.front || postedIds.side;
+  if (pair) body.paired_session_id = pair;
+  try {
+    const resp = await fetch(endpoint + "/v1/renpho", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    setSendStatus("Renpho reading posted ✓" + (pair ? " (paired to this session)." : " (no capture posted yet, stored unpaired)."));
+  } catch (e) {
+    setSendStatus("Renpho post failed (" + e.message + ").");
   }
 });
 
