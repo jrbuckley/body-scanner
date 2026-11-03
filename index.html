@@ -628,7 +628,7 @@ function computeRatios(lmPx, mask, W, H, pose) {
   return {
     pose, ratios, widths,
     joints: { shoulderJoint: Math.round(shoulderJoint * 10) / 10, hipJoint: Math.round(hipJoint * 10) / 10 },
-    span: { noseYpx: lm[LM.NOSE].y * H, ankleYpx: (lm[LM.L_ANK].y + lm[LM.R_ANK].y) / 2 * H },
+    span: { noseYpx: lmPx[LM.NOSE].y, ankleYpx: (lmPx[LM.L_ANK].y + lmPx[LM.R_ANK].y) / 2 },
     coverage: ones / (W * H), imgW: W, imgH: H
   };
 }
