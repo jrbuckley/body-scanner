@@ -146,10 +146,8 @@
       <button id="copyBtn" class="secondary" disabled>Copy JSON</button>
       <button id="dlJsonBtn" class="secondary" disabled>Download JSON</button>
       <div class="ahead" style="margin-top:12px">Backend (auto-post)</div>
-      <p class="await">Endpoint and your device token live only on this phone (browser storage — never in the published page). With a token saved, each analyzed shot posts itself, and the Renpho entry below pairs to the session.</p>
-      <input type="text" id="endpointInput" autocomplete="off" style="width:100%;margin-bottom:6px">
-      <input type="password" id="tokenInput" placeholder="Device token" autocomplete="off" style="width:100%;margin-bottom:6px">
-      <button id="saveBackendBtn" class="secondary">Save backend settings</button>
+      <p class="await" id="backendStatus">Backend: checking…</p>
+      <button id="disconnectBtn" class="secondary" hidden>Disconnect backend on this device</button>
       <div class="ahead" style="margin-top:12px">Renpho (paired reading)</div>
       <input type="number" id="rWeight" placeholder="Weight lb" inputmode="decimal" style="width:31%">
       <input type="number" id="rBf" placeholder="Body fat %" inputmode="decimal" style="width:31%">
@@ -860,14 +858,36 @@ function backendConfig() {
   };
 }
 
-$("endpointInput").value = localStorage.getItem("bs_endpoint") || DEFAULT_ENDPOINT;
-$("tokenInput").value = localStorage.getItem("bs_device_token") || "";
+// Provisioning (Jorge's call, Nov 2): connection settings are NOT managed from this
+// page's UI. The endpoint is a constant; the device token arrives once via a
+// one-time setup link (…#t=<token>) that Smalls issues — the page stores it in
+// localStorage and immediately strips it from the URL. The only on-page control is
+// Disconnect. The token he pasted by hand before this change lives in the same
+// localStorage key, so existing setups carry over untouched.
+function refreshBackendStatus() {
+  const { endpoint, token } = backendConfig();
+  $("backendStatus").textContent = token
+    ? `Backend: connected — analyzed shots auto-post to ${endpoint}.`
+    : "Backend: not connected on this device — open your one-time setup link from Smalls to connect. Share/copy still work.";
+  $("disconnectBtn").hidden = !token;
+}
 
-$("saveBackendBtn").addEventListener("click", () => {
-  localStorage.setItem("bs_endpoint", $("endpointInput").value.trim() || DEFAULT_ENDPOINT);
-  localStorage.setItem("bs_device_token", $("tokenInput").value.trim());
-  setSendStatus($("tokenInput").value.trim() ? "Backend settings saved — future shots will auto-post." : "Backend token cleared — auto-post off; share/copy still work.");
+(function importProvisioningLink() {
+  const m = location.hash.match(/#t=([A-Za-z0-9_-]{16,})/);
+  if (m) {
+    localStorage.setItem("bs_device_token", m[1]);
+    history.replaceState(null, "", location.pathname + location.search);
+    setTimeout(() => setSendStatus("Backend connected on this device ✓ — shots will auto-post."), 0);
+  }
+})();
+
+$("disconnectBtn").addEventListener("click", () => {
+  localStorage.removeItem("bs_device_token");
+  refreshBackendStatus();
+  setSendStatus("Backend disconnected on this device — auto-post off; share/copy still work.");
 });
+
+refreshBackendStatus();
 
 async function postCapture(pose, out) {
   const { endpoint, token } = backendConfig();
@@ -917,7 +937,7 @@ async function postCapture(pose, out) {
 
 $("logRenphoBtn").addEventListener("click", async () => {
   const { endpoint, token } = backendConfig();
-  if (!token) { setSendStatus("Save a device token above first — the Renpho entry posts to the same backend."); return; }
+  if (!token) { setSendStatus("Backend isn't connected on this device — open your one-time setup link from Smalls first."); return; }
   const num = id => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
   const body = { measured_at: new Date().toISOString() };
   const w = num("rWeight"), bf = num("rBf"), m = num("rMuscle");
