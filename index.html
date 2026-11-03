@@ -783,6 +783,7 @@ async function analyzeAndRender(canvas, pose) {
     } else {
       sessionResults[pose] = null;
     }
+    statusHold = false;
     refreshSendBox();
   } catch (e) {
     setAnalysisError(el, title, "Analysis failed: " + e.message);
@@ -846,11 +847,27 @@ document.querySelectorAll("#ctxChips .chip").forEach(btn => {
   });
 });
 
-function refreshSendBox() {
-  refreshWaistEst();
+// Upload feedback (fixed Nov 3 after Jorge's "no feedback" report): the upload
+// outcome message is STICKY — refreshSendBox must not overwrite it with the
+// generic "ready" text, which made a failed upload look like nothing happened.
+// statusHold is set by the upload handler and cleared on the next analysis or
+// retake. The button itself also carries state: Uploading… / Uploaded ✓.
+let statusHold = false;
+
+function updateUploadBtn() {
   const pending = ["front", "side"].filter(p => sessionResults[p] && !postedIds[p]);
   const done = ["front", "side"].filter(p => sessionResults[p] && postedIds[p]);
-  $("uploadBtn").disabled = pending.length === 0;
+  const btn = $("uploadBtn");
+  btn.disabled = pending.length === 0;
+  btn.textContent = done.length && !pending.length ? "Uploaded ✓" : "Upload session";
+}
+
+function refreshSendBox() {
+  refreshWaistEst();
+  updateUploadBtn();
+  if (statusHold) return;
+  const pending = ["front", "side"].filter(p => sessionResults[p] && !postedIds[p]);
+  const done = ["front", "side"].filter(p => sessionResults[p] && postedIds[p]);
   if (done.length && !pending.length) {
     setSendStatus(`Session uploaded ✓ (${done.join(" + ")} in the backend).`);
   } else if (pending.length) {
@@ -904,7 +921,7 @@ refreshBackendStatus();
 
 async function postCapture(pose, out) {
   const { endpoint, token } = backendConfig();
-  if (!token) return; // uploads require the provisioned device token
+  if (!token) return { ok: false, reason: "backend not connected on this device" };
   try {
     const shot = shots[pose];
     if (shot && shot.shaPromise) {
@@ -950,26 +967,39 @@ async function postCapture(pose, out) {
     });
     if (!resp.ok) throw new Error("HTTP " + resp.status);
     postedIds[pose] = id;
-    setSendStatus(`Posted ${pose} shot to the backend ✓ (session ${id.slice(0, 8)}…)`);
+    return { ok: true };
   } catch (e) {
-    setSendStatus(`Upload of the ${pose} shot failed (${e.message}) — tap Upload to retry.`);
+    return { ok: false, reason: e.message };
   }
 }
 
 $("uploadBtn").addEventListener("click", async () => {
   const { token } = backendConfig();
-  if (!token) { setSendStatus("Backend isn't connected on this device — open your one-time setup link from Smalls first."); return; }
-  $("uploadBtn").disabled = true;
+  statusHold = true;
+  if (!token) { setSendStatus("UPLOAD FAILED — backend isn't connected on this device. Open your one-time setup link from Smalls in this browser, then tap Upload again."); return; }
+  const btn = $("uploadBtn");
+  btn.disabled = true;
+  btn.textContent = "Uploading…";
+  setSendStatus("Uploading…");
+  const sent = [], failed = [];
   for (const pose of ["front", "side"]) {
     const r = sessionResults[pose];
     if (r && !postedIds[pose]) {
-      await postCapture(pose, {
+      const res = await postCapture(pose, {
         ratios: r.ratios, widths: r.widths, joints: r.joints,
         coverage: r.maskCoverage, imgW: r.image.width, imgH: r.image.height
       });
+      if (res.ok) sent.push(pose); else failed.push(`${pose} (${res.reason})`);
     }
   }
-  refreshSendBox();
+  updateUploadBtn();
+  if (failed.length) {
+    setSendStatus(`UPLOAD FAILED — ${failed.join(", ")}. Nothing new reached the backend${sent.length ? ` (${sent.join(" + ")} did go through)` : ""}. Check signal and tap Upload to retry.`);
+  } else if (sent.length) {
+    setSendStatus(`Uploaded ✓ — ${sent.join(" + ")} ${sent.length === 1 ? "is" : "are"} in the backend.`);
+  } else {
+    setSendStatus("Nothing new to upload — this session is already in the backend.");
+  }
 });
 
 $("gridBtn").addEventListener("click", () => {
@@ -1181,8 +1211,8 @@ $("flipBtn").addEventListener("click", async () => {
 $("captureBtn").addEventListener("click", () => { if (step !== "done") capture(); });
 $("dlFront").addEventListener("click", () => download("front"));
 $("dlSide").addEventListener("click", () => download("side"));
-$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); sessionResults.front = null; postedIds.front = null; refreshSendBox(); setStatus("Retaking front — face the camera"); });
-$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); sessionResults.side = null; postedIds.side = null; refreshSendBox(); setStatus("Retaking side — turn 90°"); });
+$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); sessionResults.front = null; postedIds.front = null; statusHold = false; refreshSendBox(); setStatus("Retaking front — face the camera"); });
+$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); sessionResults.side = null; postedIds.side = null; statusHold = false; refreshSendBox(); setStatus("Retaking side — turn 90°"); });
 retryBtn.addEventListener("click", () => { init(); });
 
 init();
