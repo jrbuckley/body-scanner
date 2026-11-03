@@ -138,21 +138,15 @@
     <h2>Analysis — computed on this device</h2>
     <div class="analysis" id="analysisFront"><div class="ahead">Front</div><p class="await">No front shot analyzed yet.</p></div>
     <div class="analysis" id="analysisSide"><div class="ahead">Side</div><p class="await">No side shot analyzed yet.</p></div>
-    <h2>Send results</h2>
+    <h2>Upload</h2>
     <div class="analysis" id="sendBox">
       <div class="ahead">Session data</div>
       <p class="await" id="sendStatus">No captures yet — results appear here after a shot is analyzed.</p>
-      <button id="shareBtn" disabled>Share results</button>
-      <button id="copyBtn" class="secondary" disabled>Copy JSON</button>
-      <button id="dlJsonBtn" class="secondary" disabled>Download JSON</button>
-      <div class="ahead" style="margin-top:12px">Backend (auto-post)</div>
+      <button id="uploadBtn" disabled>Upload session</button>
+      <div class="ahead" style="margin-top:12px">Backend</div>
       <p class="await" id="backendStatus">Backend: checking…</p>
       <button id="disconnectBtn" class="secondary" hidden>Disconnect backend on this device</button>
-      <div class="ahead" style="margin-top:12px">Renpho (paired reading)</div>
-      <input type="number" id="rWeight" placeholder="Weight lb" inputmode="decimal" style="width:31%">
-      <input type="number" id="rBf" placeholder="Body fat %" inputmode="decimal" style="width:31%">
-      <input type="number" id="rMuscle" placeholder="Muscle lb" inputmode="decimal" style="width:31%">
-      <button id="logRenphoBtn" class="secondary" style="margin-top:6px">Log Renpho reading</button>
+      <p class="await" style="margin-top:10px">Renpho readings don't get typed in here — send the Renpho screenshot to Smalls in chat and he'll log it against this session.</p>
     </div>
     <h2>Analyze a photo</h2>
     <select id="filePose" aria-label="Photo pose">
@@ -769,6 +763,7 @@ async function analyzeAndRender(canvas, pose) {
         capturedAt: new Date().toISOString(),
         ratios: out.ratios,
         widths: out.widths,
+        joints: out.joints,
         maskCoverage: out.coverage,
         image: { width: out.imgW, height: out.imgH }
       };
@@ -776,76 +771,28 @@ async function analyzeAndRender(canvas, pose) {
       sessionResults[pose] = null;
     }
     refreshSendBox();
-    if (out && out.ratios) postCapture(pose, out);
   } catch (e) {
     setAnalysisError(el, title, "Analysis failed: " + e.message);
   }
 }
 
-// ==== Send results (interim transport until the cloud endpoint exists) ====
+// ==== Session results + upload (Jorge's model, Nov 2: the page shows the numbers;
+// nothing leaves the device until he taps Upload) ====
 const sessionResults = { front: null, side: null };
 const ANALYSIS_VERSION = "on-device-ratios-2026-11-02";
 
-function sessionPayload() {
-  return {
-    type: "body-scanner-session",
-    version: 1,
-    analysisVersion: ANALYSIS_VERSION,
-    station: "iphone-on-mirror",
-    stationAlignment: lastLevel ? { rollDeg: +lastLevel.roll.toFixed(2), pitchDeg: +lastLevel.pitch.toFixed(2) } : null,
-    exportedAt: new Date().toISOString(),
-    results: { front: sessionResults.front, side: sessionResults.side }
-  };
-}
-
 function refreshSendBox() {
-  const have = sessionResults.front || sessionResults.side;
-  $("shareBtn").disabled = !have;
-  $("copyBtn").disabled = !have;
-  $("dlJsonBtn").disabled = !have;
-  if (have) {
-    const parts = [];
-    if (sessionResults.front) parts.push("front");
-    if (sessionResults.side) parts.push("side");
-    $("sendStatus").textContent = `Ready to send: ${parts.join(" + ")} ratios` +
-      (parts.length === 2 ? " — full session." : " — take the other shot for a full session.");
+  const pending = ["front", "side"].filter(p => sessionResults[p] && !postedIds[p]);
+  const done = ["front", "side"].filter(p => sessionResults[p] && postedIds[p]);
+  $("uploadBtn").disabled = pending.length === 0;
+  if (done.length && !pending.length) {
+    setSendStatus(`Session uploaded ✓ (${done.join(" + ")} in the backend).`);
+  } else if (pending.length) {
+    setSendStatus(`Ready to upload: ${pending.join(" + ")}${done.length ? ` (${done.join(" + ")} already uploaded)` : ""}.`);
   }
 }
 
 function setSendStatus(t) { $("sendStatus").textContent = t; }
-
-$("shareBtn").addEventListener("click", async () => {
-  const payload = JSON.stringify(sessionPayload(), null, 2);
-  const files = [];
-  for (const pose of ["front", "side"]) {
-    if (shots[pose]) {
-      try { files.push(new File([shots[pose].blob], filename(pose), { type: "image/jpeg" })); } catch (_) { /* older engines */ }
-    }
-  }
-  try {
-    if (files.length && navigator.canShare && navigator.canShare({ files })) {
-      await navigator.share({ title: "Body scanner session", text: payload, files });
-      setSendStatus("Shared (photos + results JSON).");
-    } else if (navigator.share) {
-      await navigator.share({ title: "Body scanner session", text: payload });
-      setSendStatus("Shared results JSON (photos stay as separate downloads).");
-    } else {
-      await navigator.clipboard.writeText(payload);
-      setSendStatus("Sharing isn't available here — results JSON copied to clipboard instead.");
-    }
-  } catch (e) {
-    if (e && e.name !== "AbortError") setSendStatus("Share failed: " + e.message);
-  }
-});
-
-$("copyBtn").addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(sessionPayload(), null, 2));
-    setSendStatus("Results JSON copied to clipboard.");
-  } catch (e) {
-    setSendStatus("Copy failed: " + e.message);
-  }
-});
 
 // ==== Backend auto-post (Cloudflare Worker; token only in this phone's storage) ====
 const DEFAULT_ENDPOINT = "https://body-scanner-api.jorgebuckleydeveloper.workers.dev";
@@ -867,8 +814,8 @@ function backendConfig() {
 function refreshBackendStatus() {
   const { endpoint, token } = backendConfig();
   $("backendStatus").textContent = token
-    ? `Backend: connected — analyzed shots auto-post to ${endpoint}.`
-    : "Backend: not connected on this device — open your one-time setup link from Smalls to connect. Share/copy still work.";
+    ? `Backend: connected — uploads go to ${endpoint}. Nothing is sent until you tap Upload.`
+    : "Backend: not connected on this device — open your one-time setup link from Smalls to connect.";
   $("disconnectBtn").hidden = !token;
 }
 
@@ -877,21 +824,21 @@ function refreshBackendStatus() {
   if (m) {
     localStorage.setItem("bs_device_token", m[1]);
     history.replaceState(null, "", location.pathname + location.search);
-    setTimeout(() => setSendStatus("Backend connected on this device ✓ — shots will auto-post."), 0);
+    setTimeout(() => setSendStatus("Backend connected on this device ✓ — tap Upload after a session to send it."), 0);
   }
 })();
 
 $("disconnectBtn").addEventListener("click", () => {
   localStorage.removeItem("bs_device_token");
   refreshBackendStatus();
-  setSendStatus("Backend disconnected on this device — auto-post off; share/copy still work.");
+  setSendStatus("Backend disconnected on this device — uploads off until you reconnect.");
 });
 
 refreshBackendStatus();
 
 async function postCapture(pose, out) {
   const { endpoint, token } = backendConfig();
-  if (!token) return; // auto-post is opt-in via the settings above
+  if (!token) return; // uploads require the provisioned device token
   try {
     const shot = shots[pose];
     if (shot && shot.shaPromise) {
@@ -931,46 +878,24 @@ async function postCapture(pose, out) {
     postedIds[pose] = id;
     setSendStatus(`Posted ${pose} shot to the backend ✓ (session ${id.slice(0, 8)}…)`);
   } catch (e) {
-    setSendStatus(`Backend post for ${pose} failed (${e.message}) — share/copy still work, and a retake re-posts.`);
+    setSendStatus(`Upload of the ${pose} shot failed (${e.message}) — tap Upload to retry.`);
   }
 }
 
-$("logRenphoBtn").addEventListener("click", async () => {
-  const { endpoint, token } = backendConfig();
+$("uploadBtn").addEventListener("click", async () => {
+  const { token } = backendConfig();
   if (!token) { setSendStatus("Backend isn't connected on this device — open your one-time setup link from Smalls first."); return; }
-  const num = id => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
-  const body = { measured_at: new Date().toISOString() };
-  const w = num("rWeight"), bf = num("rBf"), m = num("rMuscle");
-  if (w !== null) body.weight_lb = w;
-  if (bf !== null) body.body_fat_pct = bf;
-  if (m !== null) body.muscle_lb = m;
-  if (Object.keys(body).length < 2) { setSendStatus("Enter at least the weight from the Renpho scan."); return; }
-  const pair = postedIds.front || postedIds.side;
-  if (pair) body.paired_session_id = pair;
-  try {
-    const resp = await fetch(endpoint + "/v1/renpho", {
-      method: "POST",
-      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    setSendStatus("Renpho reading posted ✓" + (pair ? " (paired to this session)." : " (no capture posted yet, stored unpaired)."));
-  } catch (e) {
-    setSendStatus("Renpho post failed (" + e.message + ").");
+  $("uploadBtn").disabled = true;
+  for (const pose of ["front", "side"]) {
+    const r = sessionResults[pose];
+    if (r && !postedIds[pose]) {
+      await postCapture(pose, {
+        ratios: r.ratios, widths: r.widths, joints: r.joints,
+        coverage: r.maskCoverage, imgW: r.image.width, imgH: r.image.height
+      });
+    }
   }
-});
-
-$("dlJsonBtn").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(sessionPayload(), null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  const d = new Date();
-  const p = n => String(n).padStart(2, "0");
-  a.href = url;
-  a.download = `body-scanner-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  setSendStatus("Results JSON downloaded.");
+  refreshSendBox();
 });
 
 $("gridBtn").addEventListener("click", () => {
@@ -1182,8 +1107,8 @@ $("flipBtn").addEventListener("click", async () => {
 $("captureBtn").addEventListener("click", () => { if (step !== "done") capture(); });
 $("dlFront").addEventListener("click", () => download("front"));
 $("dlSide").addEventListener("click", () => download("side"));
-$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); sessionResults.front = null; refreshSendBox(); setStatus("Retaking front — face the camera"); });
-$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); sessionResults.side = null; refreshSendBox(); setStatus("Retaking side — turn 90°"); });
+$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); sessionResults.front = null; postedIds.front = null; refreshSendBox(); setStatus("Retaking front — face the camera"); });
+$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); sessionResults.side = null; postedIds.side = null; refreshSendBox(); setStatus("Retaking side — turn 90°"); });
 retryBtn.addEventListener("click", () => { init(); });
 
 init();
