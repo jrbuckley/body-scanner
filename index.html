@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Progress Capture — guided front + side</title>
+<title>Progress Capture — guided five-view (front · 45° · side · 135° · back)</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -44,9 +44,9 @@
   .chip[aria-pressed="true"] { background: #f5c542; color: #111; border-color: #f5c542; font-weight: 700; }
   button:disabled { opacity: .4; cursor: default; }
   button[hidden] { display: none; }
-  .shots { display: flex; gap: 12px; margin-top: 6px; }
-  .shot { width: 118px; }
-  .shot img { width: 118px; height: 157px; object-fit: cover; border-radius: 10px; border: 1px solid #333; background: #111; display: block; }
+  .shots { display: flex; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+  .shot { width: 104px; }
+  .shot img { width: 104px; height: 139px; object-fit: cover; border-radius: 10px; border: 1px solid #333; background: #111; display: block; }
   .shot .cap { font-size: 12px; color: #9a9a9a; margin: 5px 0; text-align: center; }
   .shot button { width: 100%; padding: 7px 0; font-size: 13px; margin: 0 0 6px; }
   .note { color: #8d8d8d; font-size: 13px; line-height: 1.45; margin-top: 14px; }
@@ -80,7 +80,7 @@
 <body>
 <header>
   <h1>Progress Capture</h1>
-  <span class="sub">Guided front + side shots with landmark ratios computed on this device, the moment each shot is captured. Photos never leave this device — they save as downloads.</span>
+  <span class="sub">Guided five-view shots — front, 45°, side, 135°, back — with landmark ratios and a dense outline computed on this device, the moment each shot is captured. When you tap Upload, each photo (shrunk to a web-size copy) is sent to The Golden Path automatically along with the session data — downloads are still there if you want the full-size files.</span>
 </header>
 <main>
   <div class="stage">
@@ -120,26 +120,48 @@
     <button id="gridBtn" class="secondary">Grid: on</button>
     <button id="levelBtn" class="secondary">Enable level</button>
     <button id="zeroBtn" class="secondary" hidden>Zero level</button>
+    <button id="voiceBtn" class="secondary" aria-pressed="true">Voice: on</button>
     <button id="retryBtn" class="secondary" hidden>Retry model load</button>
-    <h2 id="stepTitle">Step 1 of 2 — Front</h2>
+    <h2 id="stepTitle">Step 1 of 5 — Front</h2>
     <h2>Captured</h2>
     <div class="shots">
       <div class="shot">
         <img id="thumbFront" alt="Front capture">
-        <div class="cap">Front</div>
+        <div class="cap">Front · 0°</div>
         <button id="dlFront" class="secondary" disabled>Download</button>
         <button id="retakeFront" class="secondary" disabled>Retake</button>
       </div>
       <div class="shot">
+        <img id="thumbDiag45" alt="45 degree capture">
+        <div class="cap">45°</div>
+        <button id="dlDiag45" class="secondary" disabled>Download</button>
+        <button id="retakeDiag45" class="secondary" disabled>Retake</button>
+      </div>
+      <div class="shot">
         <img id="thumbSide" alt="Side capture">
-        <div class="cap">Side</div>
+        <div class="cap">Side · 90°</div>
         <button id="dlSide" class="secondary" disabled>Download</button>
         <button id="retakeSide" class="secondary" disabled>Retake</button>
+      </div>
+      <div class="shot">
+        <img id="thumbDiag135" alt="135 degree capture">
+        <div class="cap">135°</div>
+        <button id="dlDiag135" class="secondary" disabled>Download</button>
+        <button id="retakeDiag135" class="secondary" disabled>Retake</button>
+      </div>
+      <div class="shot">
+        <img id="thumbBack" alt="Back capture">
+        <div class="cap">Back · 180°</div>
+        <button id="dlBack" class="secondary" disabled>Download</button>
+        <button id="retakeBack" class="secondary" disabled>Retake</button>
       </div>
     </div>
     <h2>Analysis — computed on this device</h2>
     <div class="analysis" id="analysisFront"><div class="ahead">Front</div><p class="await">No front shot analyzed yet.</p></div>
+    <div class="analysis" id="analysisDiag45"><div class="ahead">45°</div><p class="await">No 45° shot analyzed yet.</p></div>
     <div class="analysis" id="analysisSide"><div class="ahead">Side</div><p class="await">No side shot analyzed yet.</p></div>
+    <div class="analysis" id="analysisDiag135"><div class="ahead">135°</div><p class="await">No 135° shot analyzed yet.</p></div>
+    <div class="analysis" id="analysisBack"><div class="ahead">Back</div><p class="await">No back shot analyzed yet.</p></div>
     <h2>Upload</h2>
     <div class="analysis" id="sendBox">
       <div class="ahead">Session data</div>
@@ -160,14 +182,17 @@
     </div>
     <h2>Analyze a photo</h2>
     <select id="filePose" aria-label="Photo pose">
-      <option value="auto">Pose: auto-detect</option>
+      <option value="auto">Pose: auto-detect (front/side only)</option>
       <option value="front">Pose: front</option>
+      <option value="diag45">Pose: 45°</option>
       <option value="side">Pose: side</option>
+      <option value="diag135">Pose: 135°</option>
+      <option value="back">Pose: back</option>
     </select>
     <input type="file" id="photoInput" accept="image/*">
     <div class="analysis" id="analysisFile"><div class="ahead">Photo</div><p class="await">Pick an existing JPG to run the same ratio analysis on it. No camera needed. On a phone this picker opens your photo library.</p></div>
-    <p class="note">How it works: line yourself up until every check turns green, hold still — the countdown starts on its own. Front first, then turn 90° for the side shot (either direction). The moment a shot is captured, the pose model runs on the still right here and the ratios appear under Analysis — deltas compare against your station baseline once it's been set from your first station session. Downloads still land as <i>progress-YYYY-MM-DD-front.jpg</i> / <i>-side.jpg</i> if you want the files.</p>
-    <p class="note">Protocol that keeps the ratios honest: same spot and distance, arms relaxed at your sides, similar shorts, camera at about waist height.</p>
+    <p class="note">How it works: line yourself up until every check turns green, hold still — the countdown starts on its own. You turn the same direction in 45° steps: front, 45°, side (90°), 135°, then back (180°) — the two diagonal shots and the back shot are what let the 3D model measure the corners of your body instead of guessing them as an ellipse. The two diagonals are different stances: 45° is a front three-quarter (your face still toward the camera); 135° is a back three-quarter (your face turned away). The checks tell them apart by your shoulders: past 90° their left-right order in the picture flips compared with the front shot. Voice guidance (the Voice button above, on by default) calls each position out loud as its step comes up, says “hold still” when you're lined up, and reads a correction out loud only if it has stayed on screen for a few seconds — the messages flicker too fast while you move to speak each one. The moment a shot is captured, the pose model runs on the still right here and the numbers appear under Analysis — deltas compare against your station baseline once it's been set from your first station session. Downloads land as <i>progress-YYYY-MM-DD-&lt;view&gt;.jpg</i> if you want the files. Front + side alone still upload fine if you stop early — the extra views just add points. Uploading sends the photos too: a web-size copy of each captured view goes to the backend with its data and lands in The Golden Path on its next scanner sync, so the session's pictures sit next to the 3D model without a separate upload step. If a photo fails (weak signal), the data still lands and the next Upload tap retries just the missing photos.</p>
+    <p class="note">Protocol that keeps the ratios honest: same spot and distance, turn in place (don't step sideways), arms relaxed at your sides, similar shorts, camera at about waist height.</p>
     <p class="note err" id="err"></p>
   </div>
 </main>
@@ -192,10 +217,36 @@ const LOAD_STAGE_NAMES = {
 
 let landmarker = null, stream = null, raf = 0, lastVideoTime = -1;
 let facingMode = "user";   // phone fixed station runs on the front camera by default
-let step = "front";               // "front" -> "side" -> "done"
+// Five-view flow (Nov 3, multi-view): turn the SAME direction in 45° steps —
+// front (0°) -> diag45 (45°) -> side (90°) -> diag135 (135°) -> back (180°).
+// The diagonal + back views measure the cross-section corners the old
+// front+side ellipse had to invent, and every view's dense outline feeds
+// the 3D model in The Golden Path.
+const POSES = ["front", "diag45", "side", "diag135", "back"];
+const POSE_LABEL = { front: "Front", diag45: "45°", side: "Side", diag135: "135°", back: "Back" };
+const POSE_TURN_HINT = {
+  front: "Face the camera and line up with the guide",
+  diag45: "Turn 45° — front three-quarter view, face still toward the camera",
+  side: "Turn to 90° — side-on, either direction from here is fine as long as you keep turning the same way",
+  diag135: "Turn another 45° — back three-quarter view, face turned away from the camera",
+  back: "Turn to 180° — back to the camera, arms relaxed"
+};
+// Spoken version of each step's cue (voice guidance, Nov 4): read aloud the
+// moment a step becomes current, because at station distance the on-screen
+// status line can't be read. 45° and 135° are spelled out as front vs back
+// three-quarter — that distinction is the whole point of the two steps.
+const POSE_SPEAK_CUE = {
+  front: "Front view. Face the camera and line up with the guide.",
+  diag45: "Turn 45 degrees. Front three-quarter — keep your face toward the camera.",
+  side: "Turn to the side. Side-on, 90 degrees.",
+  diag135: "Turn another 45 degrees. Back three-quarter — your face should be turned away from the camera now.",
+  back: "Turn to the back. Back to the camera, arms relaxed."
+};
+let stepIndex = 0;
+let step = POSES[0];               // current pose key, or "done"
 let holdStart = null, countStart = null, lastTick = null;
 let audioCtx = null;
-const shots = { front: null, side: null };   // {blob, url}
+const shots = { front: null, diag45: null, side: null, diag135: null, back: null };   // {blob, url}
 let FilesetResolver = null, PoseLandmarker = null;
 let visionFileset = null, modelAssetBuffer = null, modelBufferPromise = null;
 
@@ -207,6 +258,92 @@ function beep(freq = 880, ms = 90) {
     g.gain.setValueAtTime(0.12, audioCtx.currentTime);
     o.start(); o.stop(audioCtx.currentTime + ms / 1000);
   } catch (_) { /* audio is a nicety */ }
+}
+
+// ==== Voice guidance (Nov 4) ====
+// Jorge stands ~15 ft from the phone at the station: he can't read the
+// status line or the error checks, so the page talks. What speaks, and when:
+//  - Pose cues speak IMMEDIATELY when a step becomes current (page start,
+//    after each capture, on retake) — that's the "what position does it
+//    want" signal.
+//  - "Hold still" speaks once when every check first turns green.
+//  - Correction hints (the per-frame error messages) speak ONLY after the
+//    exact same hint has stayed current for HINT_SPEAK_DELAY_MS without
+//    changing — they flicker frame to frame as he moves, and speaking each
+//    change would be noise. A spoken hint is not repeated until it goes
+//    away and comes back, or ~15 s pass with it still showing.
+// Speech lives in page memory only (like the backend connection): the
+// on/off choice is a variable, never browser storage.
+const HINT_SPEAK_DELAY_MS = 3000;
+const HINT_SPEAK_REPEAT_MS = 15000;
+const voice = {
+  enabled: true,
+  primed: false,
+  hint: null,        // hint text currently being tracked
+  hintPose: null,    // pose the tracked hint belongs to
+  hintSince: 0,      // when the tracked hint first appeared
+  hintSpokenAt: 0,   // when the tracked hint was last spoken (0 = not yet)
+  holdSpoken: false  // "Hold still" already spoken for this alignment
+};
+
+function speakNow(text) {
+  if (!voice.enabled || !text) return;
+  if (!("speechSynthesis" in window)) return;
+  try {
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    synth.resume();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.02;
+    synth.speak(u);
+  } catch (_) { /* speech is a nicety, like the beeps */ }
+}
+
+// iOS Safari only speaks after a user gesture and sometimes needs the
+// engine woken inside that gesture — called from the Start camera and
+// Voice button taps. Speech queued later (captures, hints) then works.
+function primeVoice() {
+  if (voice.primed) return;
+  voice.primed = true;
+  if (!("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.resume();
+    window.speechSynthesis.getVoices();
+  } catch (_) { /* noop */ }
+}
+
+function speakPoseCue(capturedPose, nextPose) {
+  voice.hint = null; voice.hintPose = null; voice.hintSince = 0;
+  voice.hintSpokenAt = 0; voice.holdSpoken = false;
+  const cue = POSE_SPEAK_CUE[nextPose];
+  if (!cue) return;
+  speakNow(capturedPose ? `${POSE_LABEL[capturedPose]} captured. ${cue}` : cue);
+}
+
+function voiceHint(hint) {
+  const now = performance.now();
+  if (hint !== voice.hint || step !== voice.hintPose) {
+    voice.hint = hint;
+    voice.hintPose = step;
+    voice.hintSince = now;
+    voice.hintSpokenAt = 0;
+    voice.holdSpoken = false;
+    return;
+  }
+  if (!voice.enabled) return;
+  if (now - voice.hintSince < HINT_SPEAK_DELAY_MS) return;
+  if (voice.hintSpokenAt && now - voice.hintSpokenAt < HINT_SPEAK_REPEAT_MS) return;
+  // Don't talk over a pose cue that is still playing; try again next frame.
+  try { if (window.speechSynthesis && window.speechSynthesis.speaking) return; } catch (_) { /* noop */ }
+  voice.hintSpokenAt = now;
+  speakNow(hint);
+}
+
+function voiceHoldStill() {
+  if (voice.holdSpoken) return;
+  voice.holdSpoken = true;
+  voice.hint = null; voice.hintSince = 0; voice.hintSpokenAt = 0;
+  speakNow("Hold still.");
 }
 
 function setStatus(t) { statusEl.textContent = t; }
@@ -279,8 +416,19 @@ function renderChecks(list) {
 const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 const spanX = (a, b) => Math.abs(a.x - b.x);
 
+// Sign of (left-shoulder.x − right-shoulder.x) recorded while the front
+// step is square-on. Facing the camera this sign is one way; once the turn
+// passes 90° the shoulders' image order flips and the sign reverses. It is
+// the reference that lets the diagonal steps tell 45° from 135° on any
+// camera (front/rear, mirrored preview or not) — see evaluate().
+let frontOrderSign = 0;
+
 function evaluate(lm, pose) {
   // Returns {checks:[{id,label,state}], hint} — coordinates are normalized 0..1.
+  // Guidance is by view category: axial (front/back — wide shoulder span),
+  // diagonal (diag45/diag135 — span between axial and profile), profile
+  // (side — narrow span). The projected shoulder span shrinks roughly with
+  // cos(turn angle), so each category gets its own band.
   const lsh = lm[LM.L_SH], rsh = lm[LM.R_SH], lhip = lm[LM.L_HIP], rhip = lm[LM.R_HIP];
   const nose = lm[LM.NOSE], lk = lm[LM.L_KNEE], rk = lm[LM.R_KNEE];
   const vis = p => (p.visibility ?? 1) > 0.5;
@@ -291,49 +439,116 @@ function evaluate(lm, pose) {
   const push = (id, ok, okLabel, badLabel) =>
     checks.push({ id, state: ok ? "ok" : "bad", label: ok ? okLabel : badLabel });
 
-  const seen = vis(lsh) && vis(rsh) && vis(lhip) && vis(rhip) && vis(nose);
-  push("seen", seen, "Full torso detected", "Step into frame — shoulders, hips and head visible");
-  if (!seen) return { checks, hint: "Step into the frame" };
+  const isBack = pose === "back";
+  // The 135° step is a BACK three-quarter: the face is turned away, so the
+  // nose is occluded by design and must not be required to be "seen" —
+  // requiring it (as every non-back pose used to) made a true 135° stance
+  // unpassable and pushed Jorge back toward the 45° stance instead.
+  const noseRequired = !isBack && pose !== "diag135";
+  const seen = noseRequired
+    ? vis(lsh) && vis(rsh) && vis(lhip) && vis(rhip) && vis(nose)
+    : vis(lsh) && vis(rsh) && vis(lhip) && vis(rhip);
+  // At the 45° step, a missing nose with the torso otherwise seen means he
+  // has turned too far (toward the back diagonal) — say that, not the
+  // generic "step into frame".
+  const seenBad = pose === "diag45" && vis(lsh) && vis(rsh) && vis(lhip) && vis(rhip) && !vis(nose)
+    ? "Face partly toward the camera — your face should be visible at 45°"
+    : "Step into frame — shoulders, hips and head visible";
+  push("seen", seen, "Full torso detected", seenBad);
+  if (!seen) return { checks, hint: seenBad };
 
   const centered = Math.abs(mSh.x - 0.5) < 0.07 && Math.abs(mHip.x - 0.5) < 0.09;
   push("center", centered, "Centered", "Move to the center of the frame");
 
   // Aspect invariance (Nov 2 fix): landmark x/y are normalized per-axis, so a raw
-  // shW/torsoY ratio changes with the frame's aspect ratio. The 0.55 threshold was
-  // tuned on the old PORTRAIT photos (aspect 0.75); Jorge's station stream is
-  // LANDSCAPE 4:3 (aspect 1.33), where an upright front scores ~0.50 and only passes
-  // when he bends forward (foreshortening the torso). Multiply x-spans by the aspect
-  // to get physical ratios, and express thresholds in those terms:
-  // front 0.55 × 0.75 ≈ 0.42; profile 0.32 × 0.75 ≈ 0.24, 0.34 × 0.75 ≈ 0.26.
+  // shW/torsoY ratio changes with the frame's aspect ratio. Multiply x-spans by
+  // the aspect to get physical ratios (front ≈ 0.42+ in these terms; profile
+  // ≈ under 0.24/0.26; a true 45° turn lands near 0.42 × cos45° ≈ 0.30).
   const aspect = (video.videoWidth && video.videoHeight) ? video.videoWidth / video.videoHeight : 1;
   const shWp = shW * aspect, hipWp = hipW * aspect;
-  if (pose === "front") {
-    const facing = shWp / Math.max(torsoY, 1e-6) > 0.42;
-    push("facing", facing, "Facing the camera", "Face the camera squarely");
+  const spanRatio = shWp / Math.max(torsoY, 1e-6);
+  const ordered = ["facing", "center", "level", "dist", "framed"];
+  const finish = () => {
+    const bad = ordered.map(id => checks.find(c => c.id === id)).find(c => c && c.state !== "ok");
+    return { checks, hint: bad ? bad.label : "Hold still…" };
+  };
+  if (pose === "front" || pose === "back") {
+    // Record the shoulder-order sign while square-on at the front step —
+    // the diagonal steps compare against it to tell 45° from 135°.
+    if (pose === "front" && spanRatio > 0.30) {
+      const s = Math.sign(lsh.x - rsh.x);
+      if (s !== 0) frontOrderSign = s;
+    }
+    const facing = spanRatio > 0.42;
+    push("facing", facing, isBack ? "Back to the camera" : "Facing the camera", isBack ? "Turn fully around — back square to the camera" : "Face the camera squarely");
     const level = Math.abs(lsh.y - rsh.y) < 0.05 * torsoY + 0.008;
     push("level", level, "Shoulders level", "Level your shoulders");
-    // Interim station band (Nov 1): the original 0.26–0.52 range was tuned to the old
-    // close-up Sep/Oct photos and is unreachable at a fixed mirror station (at ~15 ft
-    // shoulder width is only ~0.13 of frame). Widened for tuning; after the Day-1
-    // baseline session, tighten to ±12% of the measured station shoulder width.
+    // Interim station band (Nov 1): at a fixed mirror station (~15 ft)
+    // shoulder width is only ~0.13 of frame, so the band is wide.
     const dist = shW > 0.10 && shW < 0.55;
     push("dist", dist, "Distance looks right", shW <= 0.10 ? "Step closer" : "Step back");
-    const framed = nose.y > 0.03 && mHip.y < 0.80 && (vis(lk) || vis(rk) || mHip.y < 0.74);
+    const framed = mSh.y > 0.03 && mHip.y < 0.80 && (vis(lk) || vis(rk) || mHip.y < 0.74);
     push("framed", framed, "Head to hips in frame", "Adjust so your head and hips both fit");
-    const ordered = ["facing", "center", "level", "dist", "framed"];
-    const bad = ordered.map(id => checks.find(c => c.id === id)).find(c => c && c.state !== "ok");
-    return { checks, hint: bad ? bad.label : "Hold still…" };
-  } else {
-    const profile = shWp / Math.max(torsoY, 1e-6) < 0.24 && hipWp / Math.max(torsoY, 1e-6) < 0.26;
-    push("facing", profile, "Side-on to the camera", "Turn 90° — stand side-on");
+    return finish();
+  }
+  if (pose === "diag45" || pose === "diag135") {
+    // BUG FIXED (Nov 4): shoulder span alone CANNOT tell 45° from 135° —
+    // the projected span shrinks with |cos(turn)| and |cos 45°| = |cos 135°|,
+    // so both steps used to accept the identical band (and, with the nose
+    // required for "seen", 135° in practice demanded the 45° stance: Jorge
+    // reported the two steps "asking for the same angle" — they were).
+    // What separates the diagonals: shoulder order — past 90° the
+    // shoulders' image order flips vs the sign recorded at the front step
+    // (plus face visibility for 45° only: its gate still requires the nose,
+    // which is seen there by definition). 135° deliberately does NOT gate
+    // on the nose — see the Nov 5 note in the diag135 branch. When no front
+    // reference exists (a direct retake of a diagonal), the span band alone
+    // decides.
+    const inBand = spanRatio > 0.26 && spanRatio < 0.40;
+    const noseSeen = vis(nose);
+    const orderSign = Math.sign(lsh.x - rsh.x);
+    const orderKnown = frontOrderSign !== 0 && orderSign !== 0;
+    let turned, turnedBad;
+    if (pose === "diag45") {
+      turned = inBand && noseSeen && (!orderKnown || orderSign === frontOrderSign);
+      turnedBad = !inBand
+        ? (spanRatio >= 0.40 ? "Turn a little more — you're still near square-on" : "Turn back a little — you've gone past the diagonal")
+        : (orderKnown && orderSign !== frontOrderSign)
+          ? "You've turned past 90° — turn back to the front diagonal, face toward the camera"
+          : "Face partly toward the camera — your face should be visible at 45°";
+    } else {
+      // FIXED AGAIN (Nov 5): the Nov 4 fix gated 135° on !noseSeen, but the
+      // pose model reports the nose as "visible" even from directly behind —
+      // it's an inferred landmark, so its visibility flag never drops and the
+      // gate could never open (Jorge, Nov 5: "even to 180 it says keep
+      // turning"). The gate is now purely geometric: span in the diagonal
+      // band + shoulder order flipped vs the front step. The nose is not
+      // consulted at all for 135°.
+      turned = inBand && (!orderKnown || orderSign === -frontOrderSign);
+      turnedBad = !inBand
+        ? (spanRatio >= 0.40
+            ? (orderKnown && orderSign === -frontOrderSign
+                ? "You've reached the back — turn back a little to the back diagonal"
+                : "Keep turning — you're still near square-on")
+            : "Turn a little more — you're still near side-on")
+        : "Keep turning — you're still on the front diagonal, the 45° position";
+    }
+    push("facing", turned, pose === "diag45" ? "Turned about 45° — face visible" : "Turned about 135° — face away", turnedBad);
+    const level = Math.abs(lsh.y - rsh.y) < 0.09 * torsoY + 0.012;
+    push("level", level, "Shoulders level", "Level your shoulders");
     const dist = torsoY > 0.15 && torsoY < 0.52;
     push("dist", dist, "Distance looks right", torsoY <= 0.15 ? "Step closer" : "Step back");
-    const framed = nose.y > 0.03 && mHip.y < 0.82;
+    const framed = mSh.y > 0.03 && mHip.y < 0.82;
     push("framed", framed, "Head to hips in frame", "Adjust so your head and hips both fit");
-    const ordered = ["facing", "center", "dist", "framed"];
-    const bad = ordered.map(id => checks.find(c => c.id === id)).find(c => c && c.state !== "ok");
-    return { checks, hint: bad ? bad.label : "Hold still…" };
+    return finish();
   }
+  const profile = spanRatio < 0.24 && hipWp / Math.max(torsoY, 1e-6) < 0.26;
+  push("facing", profile, "Side-on to the camera", "Turn 90° — stand side-on");
+  const dist = torsoY > 0.15 && torsoY < 0.52;
+  push("dist", dist, "Distance looks right", torsoY <= 0.15 ? "Step closer" : "Step back");
+  const framed = nose.y > 0.03 && mHip.y < 0.82;
+  push("framed", framed, "Head to hips in frame", "Adjust so your head and hips both fit");
+  return finish();
 }
 
 function drawLandmarks(lm) {
@@ -352,6 +567,14 @@ function drawLandmarks(lm) {
   octx.stroke();
 }
 
+const POSE_EL = {
+  front: { thumb: "thumbFront", dl: "dlFront", retake: "retakeFront", analysis: "analysisFront" },
+  diag45: { thumb: "thumbDiag45", dl: "dlDiag45", retake: "retakeDiag45", analysis: "analysisDiag45" },
+  side: { thumb: "thumbSide", dl: "dlSide", retake: "retakeSide", analysis: "analysisSide" },
+  diag135: { thumb: "thumbDiag135", dl: "dlDiag135", retake: "retakeDiag135", analysis: "analysisDiag135" },
+  back: { thumb: "thumbBack", dl: "dlBack", retake: "retakeBack", analysis: "analysisBack" }
+};
+
 function capture() {
   const c = document.createElement("canvas");
   c.width = video.videoWidth; c.height = video.videoHeight;
@@ -366,22 +589,26 @@ function capture() {
       .then(buf => crypto.subtle.digest("SHA-256", buf))
       .then(h => { shots[cap].sha256 = [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, "0")).join(""); })
       .catch(() => { /* hash is metadata; capture proceeds without it */ });
-    const thumb = cap === "front" ? $("thumbFront") : $("thumbSide");
-    thumb.src = shots[cap].url;
-    (cap === "front" ? $("dlFront") : $("dlSide")).disabled = false;
-    (cap === "front" ? $("retakeFront") : $("retakeSide")).disabled = false;
+    const els = POSE_EL[cap];
+    $(els.thumb).src = shots[cap].url;
+    $(els.dl).disabled = false;
+    $(els.retake).disabled = false;
     flashEl.style.opacity = "1";
     setTimeout(() => flashEl.style.opacity = "0", 60);
     beep(1320, 140);
-    if (cap === "front") {
-      step = "side";
-      $("stepTitle").textContent = "Step 2 of 2 — Side";
-      setStatus("Front captured. Turn 90° — side-on, either direction.");
+    stepIndex += 1;
+    if (stepIndex < POSES.length) {
+      step = POSES[stepIndex];
+      $("stepTitle").textContent = `Step ${stepIndex + 1} of ${POSES.length} — ${POSE_LABEL[step]}`;
+      setStatus(`${POSE_LABEL[cap]} captured. ${POSE_TURN_HINT[step]}`);
+      speakPoseCue(cap, step);
     } else {
       step = "done";
-      $("stepTitle").textContent = "Done — both shots captured";
-      setStatus("Both shots captured — ratios are under Analysis.");
+      $("stepTitle").textContent = "Done — all five views captured";
+      setStatus("All five views captured — numbers are under Analysis.");
       $("captureBtn").disabled = true;
+      voice.hint = null; voice.hintSpokenAt = 0;
+      speakNow("All five views captured.");
     }
     holdStart = countStart = null;
     countdownEl.style.display = "none";
@@ -416,6 +643,7 @@ function loop() {
   if (!lm) {
     renderChecks([{ state: "bad", label: "No pose detected — step into the frame" }]);
     setStatus("No pose detected");
+    voiceHint("Step into the frame");
     holdStart = countStart = null; countdownEl.style.display = "none";
     return;
   }
@@ -427,9 +655,10 @@ function loop() {
     holdStart = countStart = null;
     countdownEl.style.display = "none";
     setStatus(hint);
+    voiceHint(hint);
     return;
   }
-  if (!holdStart) { holdStart = now; setStatus("Hold still…"); return; }
+  if (!holdStart) { holdStart = now; setStatus("Hold still…"); voiceHoldStill(); return; }
   if (now - holdStart < HOLD_MS) { setStatus("Hold still…"); return; }
   if (!countStart) { countStart = now; lastTick = 3; }
   const remain = COUNT_MS - (now - countStart);
@@ -455,8 +684,9 @@ function loop() {
 // Station baseline: Jorge's call (Nov 1) — the phone-on-mirror station starts a NEW
 // ratio series; the old Sep/Oct photo numbers are never mixed in. Filled in from the
 // Day-1 station baseline session (3 back-to-back pairs, averages). While a pose is
-// null, its analysis shows ratios only, no delta reference.
-const STATION_BASELINE = { front: null, side: null };
+// null, its analysis shows ratios only, no delta reference. Only front/side carry
+// ratio baselines; the diagonal and back views feed the 3D model's shape.
+const STATION_BASELINE = { front: null, side: null, diag45: null, diag135: null, back: null };
 
 // ==== ANALYSIS CORE (pure) ====
 const REF_W = 1290; // baseline photo width (1290x1720); px constants below scale from it
@@ -576,6 +806,50 @@ function prepareMask(floatMask, mw, mh, W, H) {
   return bin;
 }
 
+function computeContour(mask, W, H, lmPx) {
+  // Dense silhouette (v3): the full outline of the segmentation mask, not
+  // just the eight torso widths. Samples the central run every ~0.5% of
+  // the body's vertical extent (mask top = head top, mask bottom = soles;
+  // ~200 rows, 4x denser than v2's ~2% steps) and records BOTH edges of
+  // each run (x0/x1) plus its width and center, so the outline is
+  // asymmetric — a wider left side stays wider in the data. Also records
+  // the pose landmarks in pixels, so downstream consumers (the 3D body
+  // model in The Golden Path) can fine-tune the shape from the actual
+  // image instead of interpolating between a handful of widths. Widths use
+  // the same central-run + gap-bridging definition as the ratio widths.
+  let top = -1, bottom = -1;
+  for (let y = 0; y < H; y++) {
+    let any = false;
+    const rowOff = y * W;
+    for (let x = 0; x < W; x += 4) { if (mask[rowOff + x]) { any = true; break; } }
+    if (any) { if (top < 0) top = y; bottom = y; }
+  }
+  if (top < 0 || bottom - top < 50) return null;
+  const xCenter = (lmPx[11].x + lmPx[12].x + lmPx[23].x + lmPx[24].x) / 4;
+  const bridge = Math.max(2, Math.round(10 * W / REF_W));
+  const samples = [];
+  const N = 200;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const y = Math.round(top + t * (bottom - top));
+    const run = centralRun(mask.subarray(y * W, (y + 1) * W), xCenter, bridge);
+    if (run) samples.push({
+      t: Math.round(t * 1000) / 1000, w: run.width,
+      cx: Math.round((run.x0 + run.x1) / 2 * 10) / 10,
+      x0: run.x0, x1: run.x1
+    });
+  }
+  if (samples.length < 10) return null;
+  const pt = idx => ({ x: Math.round(lmPx[idx].x * 10) / 10, y: Math.round(lmPx[idx].y * 10) / 10 });
+  const landmarks = {
+    nose: pt(0), shoulderL: pt(11), shoulderR: pt(12),
+    elbowL: pt(13), elbowR: pt(14), wristL: pt(15), wristR: pt(16),
+    hipL: pt(23), hipR: pt(24), kneeL: pt(25), kneeR: pt(26),
+    ankleL: pt(27), ankleR: pt(28)
+  };
+  return { v: 3, topPx: top, bottomPx: bottom, samples, landmarks };
+}
+
 function computeRatios(lmPx, mask, W, H, pose) {
   // lmPx: 33 landmarks in PIXEL coordinates. mask: binary Uint8Array W*H.
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -610,17 +884,27 @@ function computeRatios(lmPx, mask, W, H, pose) {
   };
   let ratios = null;
   if (w60) {
-    if (pose === "front") {
+    if (pose === "front" || pose === "back") {
+      // The back view carries the same joint geometry seen from behind —
+      // its own series (back ratios are never mixed into the front's).
       ratios = {
         shoulderJoint_to_hipJoint: round3(shoulderJoint / hipJoint),
         waist060_to_hipJoint: round3(widths.waist060 / hipJoint),
         waist060_over_shoulderJoint: round3(widths.waist060 / shoulderJoint),
         shoulderBreadth_over_shoulderJoint: s0 ? round3(widths.shoulderLine / shoulderJoint) : null
       };
-    } else {
+    } else if (pose === "side") {
       ratios = {
         waistDepth_to_hipDepth: hipLine ? round3(widths.waist060 / widths.hipLine) : null,
         chestDepth_to_waistDepth: chest ? round3(widths.chest / widths.waist060) : null
+      };
+    } else {
+      // Diagonal views: projected widths only. Their job is the dense
+      // contour (the cross-section corners for the 3D model); these two
+      // projected ratios are kept for sanity-checking the turn angle.
+      ratios = {
+        waist060_over_shoulderLine: s0 ? round3(widths.waist060 / widths.shoulderLine) : null,
+        waist060_to_hipLine: hipLine ? round3(widths.waist060 / widths.hipLine) : null
       };
     }
   }
@@ -628,7 +912,8 @@ function computeRatios(lmPx, mask, W, H, pose) {
     pose, ratios, widths,
     joints: { shoulderJoint: Math.round(shoulderJoint * 10) / 10, hipJoint: Math.round(hipJoint * 10) / 10 },
     span: { noseYpx: lmPx[LM.NOSE].y, ankleYpx: (lmPx[LM.L_ANK].y + lmPx[LM.R_ANK].y) / 2 },
-    coverage: ones / (W * H), imgW: W, imgH: H
+    coverage: ones / (W * H), imgW: W, imgH: H,
+    contour: computeContour(mask, W, H, lmPx)
   };
 }
 // ==== END ANALYSIS CORE ====
@@ -664,9 +949,10 @@ async function analyzeStill(source, poseWanted, label) {
   const lm = await ensureImageLandmarker();
   const result = lm.detect(source);
   const marks = result && result.landmarks && result.landmarks[0];
-  if (!marks) return { pose: poseWanted === "side" ? "side" : "front", label, error: "No pose detected in this image." };
+  const fallbackPose = POSES.includes(poseWanted) ? poseWanted : "front";
+  if (!marks) return { pose: fallbackPose, label, error: "No pose detected in this image." };
   const mpMask = result.segmentationMasks && result.segmentationMasks[0];
-  if (!mpMask) return { pose: poseWanted === "side" ? "side" : "front", label, error: "The model returned no segmentation mask — ratios need the mask, not just landmarks." };
+  if (!mpMask) return { pose: fallbackPose, label, error: "The model returned no segmentation mask — ratios need the mask, not just landmarks." };
   let data, mw = mpMask.width || W, mh = mpMask.height || H;
   try {
     data = mpMask.getAsFloat32Array();
@@ -693,9 +979,23 @@ const RATIO_ROWS = {
     ["Waist ÷ Shoulder — joints", "waist060_over_shoulderJoint"],
     ["Shoulder breadth ÷ Shoulder", "shoulderBreadth_over_shoulderJoint"]
   ],
+  back: [
+    ["Shoulder : Hip — joints (back)", "shoulderJoint_to_hipJoint"],
+    ["Waist : Hip — joints (back)", "waist060_to_hipJoint"],
+    ["Waist ÷ Shoulder — joints (back)", "waist060_over_shoulderJoint"],
+    ["Shoulder breadth ÷ Shoulder (back)", "shoulderBreadth_over_shoulderJoint"]
+  ],
   side: [
     ["Waist depth ÷ Hip depth", "waistDepth_to_hipDepth"],
     ["Chest depth ÷ Waist depth", "chestDepth_to_waistDepth"]
+  ],
+  diag45: [
+    ["Waist ÷ Shoulder breadth — projected", "waist060_over_shoulderLine"],
+    ["Waist ÷ Hip line — projected", "waist060_to_hipLine"]
+  ],
+  diag135: [
+    ["Waist ÷ Shoulder breadth — projected", "waist060_over_shoulderLine"],
+    ["Waist ÷ Hip line — projected", "waist060_to_hipLine"]
   ]
 };
 
@@ -722,7 +1022,7 @@ function resetAnalysis(el, title) {
 }
 
 function renderAnalysis(el, out) {
-  const title = (out.pose === "front" ? "Front" : "Side") + (out.label ? ` — ${out.label}` : "");
+  const title = (POSE_LABEL[out.pose] || "Front") + (out.label ? ` — ${out.label}` : "");
   if (out.error) { setAnalysisError(el, title, out.error); return; }
   clearBox(el, title);
   const table = document.createElement("table");
@@ -757,13 +1057,13 @@ function renderAnalysis(el, out) {
   }
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = `Waist @ navel line ${out.widths.waist060} px · waist min (band) ${out.widths.waistMin} px @ ${out.widths.waistMinFrac} · mask coverage ${(out.coverage * 100).toFixed(1)}% · ${out.imgW}×${out.imgH}`;
+  meta.textContent = `Waist @ navel line ${out.widths.waist060} px · waist min (band) ${out.widths.waistMin} px @ ${out.widths.waistMinFrac} · mask coverage ${(out.coverage * 100).toFixed(1)}% · ${out.imgW}×${out.imgH}${out.contour ? ` · dense outline: ${out.contour.samples.length} points (both edges) for the 3D model` : ""}`;
   el.appendChild(meta);
 }
 
 async function analyzeAndRender(canvas, pose) {
-  const el = pose === "front" ? $("analysisFront") : $("analysisSide");
-  const title = pose === "front" ? "Front" : "Side";
+  const el = $(POSE_EL[pose].analysis);
+  const title = POSE_LABEL[pose];
   setAnalysisWaiting(el, title, "Analyzing on this device…");
   try {
     const out = await analyzeStill(canvas, pose, "captured just now");
@@ -774,6 +1074,7 @@ async function analyzeAndRender(canvas, pose) {
         capturedAt: new Date().toISOString(),
         ratios: out.ratios,
         widths: out.widths,
+        contour: out.contour || null,
         joints: out.joints,
         scaleCmPerPx: bodyScaleCmPerPx(out.span),
         maskCoverage: out.coverage,
@@ -791,8 +1092,8 @@ async function analyzeAndRender(canvas, pose) {
 
 // ==== Session results + upload (Jorge's model, Nov 2: the page shows the numbers;
 // nothing leaves the device until he taps Upload) ====
-const sessionResults = { front: null, side: null };
-const ANALYSIS_VERSION = "on-device-ratios-2026-11-02";
+const sessionResults = { front: null, diag45: null, side: null, diag135: null, back: null };
+const ANALYSIS_VERSION = "on-device-ratios-2026-11-04-auto-photos-1";
 
 // ==== Waist circumference estimate (Jorge item 3, Nov 2) ====
 // Scale is anchored to Jorge's known stature via the nose→ankle span in the
@@ -854,23 +1155,28 @@ document.querySelectorAll("#ctxChips .chip").forEach(btn => {
 let statusHold = false;
 
 function updateUploadBtn() {
-  const pending = ["front", "side"].filter(p => sessionResults[p] && !postedIds[p]);
-  const done = ["front", "side"].filter(p => sessionResults[p] && postedIds[p]);
+  const pendingData = POSES.filter(p => sessionResults[p] && !postedIds[p]);
+  const pendingImg = POSES.filter(p => sessionResults[p] && postedIds[p] && !postedImages[p]);
+  const done = POSES.filter(p => sessionResults[p] && postedIds[p] && postedImages[p]);
   const btn = $("uploadBtn");
-  btn.disabled = pending.length === 0;
-  btn.textContent = done.length && !pending.length ? "Uploaded ✓" : "Upload session";
+  btn.disabled = pendingData.length === 0 && pendingImg.length === 0;
+  btn.textContent = done.length && !pendingData.length && !pendingImg.length ? "Uploaded ✓" : "Upload session";
 }
 
 function refreshSendBox() {
   refreshWaistEst();
   updateUploadBtn();
   if (statusHold) return;
-  const pending = ["front", "side"].filter(p => sessionResults[p] && !postedIds[p]);
-  const done = ["front", "side"].filter(p => sessionResults[p] && postedIds[p]);
-  if (done.length && !pending.length) {
-    setSendStatus(`Session uploaded ✓ (${done.join(" + ")} in the backend).`);
-  } else if (pending.length) {
-    setSendStatus(`Ready to upload: ${pending.join(" + ")}${done.length ? ` (${done.join(" + ")} already uploaded)` : ""}.`);
+  const pendingData = POSES.filter(p => sessionResults[p] && !postedIds[p]);
+  const pendingImg = POSES.filter(p => sessionResults[p] && postedIds[p] && !postedImages[p]);
+  const done = POSES.filter(p => sessionResults[p] && postedIds[p] && postedImages[p]);
+  if (done.length && !pendingData.length && !pendingImg.length) {
+    setSendStatus(`Session uploaded ✓ — data + photos for ${done.join(" + ")} are in the backend; the photos appear in The Golden Path on its next scanner sync.`);
+  } else if (pendingData.length || pendingImg.length) {
+    const bits = [];
+    if (pendingData.length) bits.push(`data + photos: ${pendingData.join(" + ")}`);
+    if (pendingImg.length) bits.push(`photos only: ${pendingImg.join(" + ")}`);
+    setSendStatus(`Ready to upload — ${bits.join("; ")}${done.length ? ` (${done.join(" + ")} already uploaded)` : ""}.`);
   }
 }
 
@@ -884,7 +1190,12 @@ function setSendStatus(t) { $("sendStatus").textContent = t; }
 // while the tab is open — never in localStorage/sessionStorage/cookies, never
 // typed, never in the published source. The public GitHub Pages copy receives
 // no injection, so it runs view-only with uploads disabled.
-const postedIds = { front: null, side: null };
+const postedIds = { front: null, diag45: null, side: null, diag135: null, back: null };
+// Photos posted per pose (Nov 4, 2026 — Jorge's choice: scanner photos now
+// send to The Golden Path automatically with the data). A pose's photo can
+// only post after its data: the photo references the capture session id the
+// data post created (postedIds).
+const postedImages = { front: false, diag45: false, side: false, diag135: false, back: false };
 
 function backendConfig() {
   const cfg = window.__BS_CFG__ || {};
@@ -931,8 +1242,8 @@ async function postCapture(pose, out) {
       features: {
         ratios: out.ratios,
         landmark_widths: { shoulderJointPx: out.joints.shoulderJoint, hipJointPx: out.joints.hipJoint },
-        silhouette_profile: out.widths,
-        waist_width_px: pose === "front" ? out.widths.waist060 : null,
+        silhouette_profile: { ...out.widths, contour: out.contour || null },
+        waist_width_px: pose === "side" ? null : out.widths.waist060,
         waist_depth_px: pose === "side" ? out.widths.waist060 : null,
         // Session waist estimate rides on the front row (side row if no front)
         // so exports never double-count it. Labeled estimate end to end.
@@ -957,6 +1268,57 @@ async function postCapture(pose, out) {
   }
 }
 
+// Downscale a captured photo for upload: the full-res frame stays on the
+// phone (Download gives the original); what travels is a web-size copy —
+// max 1280px on the long edge, JPEG q0.85, typically 200–400 KB — which is
+// plenty for viewing the session in The Golden Path next to the model.
+async function downscaleForUpload(blob) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    if (scale >= 1 && blob.size <= 900000) { if (bmp.close) bmp.close(); return blob; }
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(bmp.width * scale));
+    c.height = Math.max(1, Math.round(bmp.height * scale));
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    if (bmp.close) bmp.close();
+    const out = await new Promise(r => c.toBlob(r, "image/jpeg", 0.85));
+    return out || blob;
+  } catch (_) {
+    return blob; // upload the original rather than lose the photo
+  }
+}
+
+// Post one pose's photo to the backend, attached to the capture session its
+// data post created. A 409 means the photo is already stored (an earlier
+// attempt landed) — that counts as done, not as a failure.
+async function postCaptureImage(pose) {
+  const { endpoint, token } = backendConfig();
+  if (!token) return { ok: false, reason: "backend not connected on this device" };
+  const shot = shots[pose];
+  const sessionId = postedIds[pose];
+  if (!shot || !shot.blob) return { ok: false, reason: "no photo held for this view" };
+  if (!sessionId) return { ok: false, reason: "session data not uploaded yet" };
+  try {
+    const blob = await downscaleForUpload(shot.blob);
+    const resp = await fetch(endpoint + "/v1/capture-images", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + token,
+        "Content-Type": blob.type || "image/jpeg",
+        "X-Session-Id": sessionId
+      },
+      body: blob
+    });
+    if (resp.status === 409) { postedImages[pose] = true; return { ok: true, already: true }; }
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    postedImages[pose] = true;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
 $("uploadBtn").addEventListener("click", async () => {
   const { token } = backendConfig();
   statusHold = true;
@@ -964,25 +1326,37 @@ $("uploadBtn").addEventListener("click", async () => {
   const btn = $("uploadBtn");
   btn.disabled = true;
   btn.textContent = "Uploading…";
-  setSendStatus("Uploading…");
+  setSendStatus("Uploading data…");
   const sent = [], failed = [];
-  for (const pose of ["front", "side"]) {
+  for (const pose of POSES) {
     const r = sessionResults[pose];
     if (r && !postedIds[pose]) {
       const res = await postCapture(pose, {
-        ratios: r.ratios, widths: r.widths, joints: r.joints,
+        ratios: r.ratios, widths: r.widths, contour: r.contour, joints: r.joints,
         coverage: r.maskCoverage, imgW: r.image.width, imgH: r.image.height
       });
-      if (res.ok) sent.push(pose); else failed.push(`${pose} (${res.reason})`);
+      if (res.ok) sent.push(pose); else failed.push(`${pose} data (${res.reason})`);
     }
   }
+  // Photos ride with the data (Jorge's call, Nov 4): each pose's photo posts
+  // right after its data exists, and a photo that failed on an earlier tap
+  // is retried here even when its data went through long ago.
+  const sentImg = [], failedImg = [];
+  const imgPoses = POSES.filter(p => sessionResults[p] && postedIds[p] && !postedImages[p]);
+  if (imgPoses.length) setSendStatus("Uploading photos…");
+  for (const pose of imgPoses) {
+    const res = await postCaptureImage(pose);
+    if (res.ok) sentImg.push(pose); else failedImg.push(`${pose} photo (${res.reason})`);
+  }
   updateUploadBtn();
-  if (failed.length) {
-    setSendStatus(`UPLOAD FAILED — ${failed.join(", ")}. Nothing new reached the backend${sent.length ? ` (${sent.join(" + ")} did go through)` : ""}. Check signal and tap Upload to retry.`);
-  } else if (sent.length) {
-    setSendStatus(`Uploaded ✓ — ${sent.join(" + ")} ${sent.length === 1 ? "is" : "are"} in the backend.`);
+  const problems = [...failed, ...failedImg];
+  if (problems.length) {
+    setSendStatus(`UPLOAD INCOMPLETE — ${problems.join(", ")}. What did land stays landed${sent.length ? ` (data: ${sent.join(" + ")})` : ""}${sentImg.length ? ` (photos: ${sentImg.join(" + ")})` : ""} — check signal and tap Upload to send the rest.`);
+  } else if (sent.length || sentImg.length) {
+    const all = [...new Set([...sent, ...sentImg])];
+    setSendStatus(`Uploaded ✓ — data + photos for ${all.join(" + ")} are in the backend. The photos appear in The Golden Path on its next scanner sync.`);
   } else {
-    setSendStatus("Nothing new to upload — this session is already in the backend.");
+    setSendStatus("Nothing new to upload — this session, photos included, is already in the backend.");
   }
 });
 
@@ -1185,18 +1559,44 @@ async function startCamera() {
   }
 }
 
+$("voiceBtn").addEventListener("click", () => {
+  voice.enabled = !voice.enabled;
+  $("voiceBtn").textContent = voice.enabled ? "Voice: on" : "Voice: off";
+  $("voiceBtn").setAttribute("aria-pressed", String(voice.enabled));
+  if (voice.enabled) {
+    primeVoice();
+    speakNow("Voice on.");
+  } else {
+    try { window.speechSynthesis.cancel(); } catch (_) { /* noop */ }
+  }
+});
+
 $("startBtn").addEventListener("click", async () => {
-  if (await startCamera() && step === "front") setStatus("Face the camera and line up with the guide");
+  primeVoice();
+  if (await startCamera() && step !== "done") {
+    setStatus(POSE_TURN_HINT[step]);
+    speakPoseCue(null, step);
+  }
 });
 $("flipBtn").addEventListener("click", async () => {
   facingMode = facingMode === "user" ? "environment" : "user";
   if (await startCamera()) setStatus(facingMode === "user" ? "Front camera" : "Rear camera");
 });
 $("captureBtn").addEventListener("click", () => { if (step !== "done") capture(); });
-$("dlFront").addEventListener("click", () => download("front"));
-$("dlSide").addEventListener("click", () => download("side"));
-$("retakeFront").addEventListener("click", () => { step = "front"; $("stepTitle").textContent = "Step 1 of 2 — Front"; $("captureBtn").disabled = false; resetAnalysis($("analysisFront"), "Front"); sessionResults.front = null; postedIds.front = null; statusHold = false; refreshSendBox(); setStatus("Retaking front — face the camera"); });
-$("retakeSide").addEventListener("click", () => { step = "side"; $("stepTitle").textContent = "Step 2 of 2 — Side"; $("captureBtn").disabled = false; resetAnalysis($("analysisSide"), "Side"); sessionResults.side = null; postedIds.side = null; statusHold = false; refreshSendBox(); setStatus("Retaking side — turn 90°"); });
+for (const pose of POSES) {
+  const els = POSE_EL[pose];
+  $(els.dl).addEventListener("click", () => download(pose));
+  $(els.retake).addEventListener("click", () => {
+    stepIndex = POSES.indexOf(pose);
+    step = pose;
+    $("stepTitle").textContent = `Step ${stepIndex + 1} of ${POSES.length} — ${POSE_LABEL[pose]}`;
+    $("captureBtn").disabled = false;
+    resetAnalysis($(els.analysis), POSE_LABEL[pose]);
+    sessionResults[pose] = null; postedIds[pose] = null; postedImages[pose] = false; statusHold = false; refreshSendBox();
+    setStatus(`Retaking ${POSE_LABEL[pose].toLowerCase()} — ${POSE_TURN_HINT[pose].toLowerCase()}`);
+    speakPoseCue(null, pose);
+  });
+}
 retryBtn.addEventListener("click", () => { init(); });
 
 init();
